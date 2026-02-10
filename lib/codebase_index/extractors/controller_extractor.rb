@@ -27,7 +27,13 @@ module CodebaseIndex
       #
       # @return [Array<ExtractedUnit>] List of controller units
       def extract_all
-        ApplicationController.descendants.map do |controller|
+        controllers = ApplicationController.descendants
+
+        if defined?(ActionController::API)
+          controllers = (controllers + ActionController::API.descendants).uniq
+        end
+
+        controllers.map do |controller|
           extract_controller(controller)
         end.compact
       end
@@ -205,7 +211,7 @@ module CodebaseIndex
 
           # Parent chain for understanding inherited behavior
           ancestors: controller.ancestors
-                              .take_while { |a| a != ActionController::Base }
+                              .take_while { |a| a != ActionController::Base && a != ActionController::API }
                               .select { |a| a.is_a?(Class) }
                               .map(&:name)
                               .compact,
