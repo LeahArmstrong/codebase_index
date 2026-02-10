@@ -33,6 +33,22 @@ module CodebaseIndex
   #   extractor.extract_changed(["app/models/user.rb", "app/services/checkout.rb"])
   #
   class Extractor
+    # Directories under app/ that contain classes we need to extract.
+    # Used by eager_load_extraction_directories as a fallback when
+    # Rails.application.eager_load! fails (e.g., NameError from graphql/).
+    EXTRACTION_DIRECTORIES = %w[
+      models
+      controllers
+      services
+      jobs
+      mailers
+      components
+      interactors
+      operations
+      commands
+      use_cases
+    ].freeze
+
     EXTRACTORS = {
       models: Extractors::ModelExtractor,
       controllers: Extractors::ControllerExtractor,
@@ -81,12 +97,7 @@ module CodebaseIndex
       setup_output_directory
 
       # Eager load once — all extractors need loaded classes for introspection.
-      # Rescue NameError for files referencing gems that aren't installed.
-      begin
-        Rails.application.eager_load!
-      rescue NameError => e
-        Rails.logger.warn "[CodebaseIndex] eager_load! skipped some files: #{e.message}"
-      end
+      safe_eager_load!
 
       # Phase 1: Extract all units
       EXTRACTORS.each do |type, extractor_class|
@@ -147,13 +158,7 @@ module CodebaseIndex
       end
 
       # Eager load to ensure newly-added classes are discoverable.
-      # Rescue NameError for files referencing gems that aren't installed
-      # (e.g., app/graphql/ without the graphql gem).
-      begin
-        Rails.application.eager_load!
-      rescue NameError => e
-        Rails.logger.warn "[CodebaseIndex] eager_load! skipped some files: #{e.message}"
-      end
+      safe_eager_load!
 
       # Normalize relative paths (from git diff) to absolute (as stored in file_map)
       absolute_files = changed_files.map do |f|
@@ -177,6 +182,50 @@ module CodebaseIndex
     end
 
     private
+
+    # ──────────────────────────────────────────────────────────────────────
+    # Eager Loading
+    # ──────────────────────────────────────────────────────────────────────
+
+    # Attempt eager_load!, falling back to per-directory loading on NameError.
+    #
+    # A single NameError (e.g., app/graphql/ referencing an uninstalled gem)
+    # aborts eager_load! entirely. Zeitwerk processes dirs alphabetically,
+    # so graphql/ before models/ means models never load. The fallback
+    # loads only the directories we actually need for extraction.
+    def safe_eager_load!
+      Rails.application.eager_load!
+    rescue NameError => e
+      Rails.logger.warn "[CodebaseIndex] eager_load! hit NameError: #{e.message}"
+      Rails.logger.warn "[CodebaseIndex] Falling back to per-directory eager loading"
+      eager_load_extraction_directories
+    end
+
+    # Load classes from each extraction-relevant app/ subdirectory individually.
+    # Uses Zeitwerk's eager_load_dir when available (Rails 7.1+/Zeitwerk 2.6+),
+    # otherwise falls back to Dir.glob + require.
+    def eager_load_extraction_directories
+      loader = Rails.autoloaders.main
+
+      EXTRACTION_DIRECTORIES.each do |subdir|
+        dir = Rails.root.join("app", subdir)
+        next unless dir.exist?
+
+        begin
+          if loader.respond_to?(:eager_load_dir)
+            loader.eager_load_dir(dir.to_s)
+          else
+            Dir.glob(dir.join("**/*.rb")).sort.each do |file|
+              require file
+            rescue NameError, LoadError => e
+              Rails.logger.warn "[CodebaseIndex] Skipped #{file}: #{e.message}"
+            end
+          end
+        rescue NameError, LoadError => e
+          Rails.logger.warn "[CodebaseIndex] Failed to eager load app/#{subdir}/: #{e.message}"
+        end
+      end
+    end
 
     # ──────────────────────────────────────────────────────────────────────
     # Setup
