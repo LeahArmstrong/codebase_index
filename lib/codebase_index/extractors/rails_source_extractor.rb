@@ -224,6 +224,10 @@ module CodebaseIndex
         )
 
         unit.source_code = annotate_framework_source(source, component, relative)
+
+        public_methods = extract_public_api(source)
+        dsl_methods = extract_dsl_methods(source)
+
         unit.metadata = {
           rails_version: @rails_version,
           component: component,
@@ -232,15 +236,15 @@ module CodebaseIndex
           # API extraction for retrieval
           defined_modules: extract_module_names(source),
           defined_classes: extract_class_names(source),
-          public_methods: extract_public_api(source),
-          dsl_methods: extract_dsl_methods(source),
+          public_methods: public_methods,
+          dsl_methods: dsl_methods,
 
           # Common options/configurations
           option_definitions: extract_option_definitions(source),
 
           # For retrieval ranking
           is_public_api: public_api_file?(relative),
-          importance: rate_importance(relative, source)
+          importance: rate_importance(relative, source, public_methods: public_methods, dsl_methods: dsl_methods)
         }
 
         unit
@@ -403,18 +407,19 @@ module CodebaseIndex
       end
 
       # Rate importance for retrieval ranking
-      def rate_importance(relative_path, source)
+      def rate_importance(relative_path, source, public_methods: nil, dsl_methods: nil)
         score = 0
 
         # High-traffic files
         score += 3 if relative_path.match?(/associations|callbacks|validations/)
 
         # Files with lots of public methods
-        public_method_count = extract_public_api(source).size
+        public_method_count = public_methods ? public_methods.size : extract_public_api(source).size
         score += 2 if public_method_count > 10
 
         # Files with DSL methods
-        score += 2 if extract_dsl_methods(source).any?
+        dsl = dsl_methods || extract_dsl_methods(source)
+        score += 2 if dsl.any?
 
         # Files with option documentation
         score += 1 if source.include?("# Options:")

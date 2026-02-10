@@ -231,24 +231,19 @@ module CodebaseIndex
       def extract_dependencies(source)
         deps = []
 
-        # Model references
-        if defined?(ActiveRecord::Base)
-          ActiveRecord::Base.descendants.each do |model|
-            next unless model.name
-            if source.match?(/\b#{model.name}\b/)
-              deps << { type: :model, target: model.name }
-            end
-          end
+        # Model references (using precomputed regex)
+        source.scan(ModelNameCache.model_names_regex).uniq.each do |model_name|
+          deps << { type: :model, target: model_name, via: :code_reference }
         end
 
         # Service references (mailers often call services for data)
         source.scan(/(\w+Service)(?:\.|::)/).flatten.uniq.each do |service|
-          deps << { type: :service, target: service }
+          deps << { type: :service, target: service, via: :code_reference }
         end
 
         # URL helpers (indicates what resources emails link to)
         source.scan(/(\w+)_(?:url|path)/).flatten.uniq.each do |route|
-          deps << { type: :route, target: route }
+          deps << { type: :route, target: route, via: :url_helper }
         end
 
         deps.uniq { |d| [d[:type], d[:target]] }

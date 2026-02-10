@@ -206,17 +206,9 @@ module CodebaseIndex
           deps << { type: :component, target: comp, via: :render }
         end
 
-        # Model references (often passed as props)
-        if defined?(ActiveRecord::Base)
-          ActiveRecord::Base.descendants.each do |model|
-            next unless model.name
-            # Look for type hints, variable names, or direct references
-            if source.match?(/\b#{model.name}\b/) ||
-               source.match?(/@#{model.name.underscore}\b/) ||
-               source.match?(/#{model.name.underscore}:/)
-              deps << { type: :model, target: model.name, via: :data_dependency }
-            end
-          end
+        # Model references (often passed as props, using precomputed regex)
+        source.scan(ModelNameCache.model_names_regex).uniq.each do |model_name|
+          deps << { type: :model, target: model_name, via: :data_dependency }
         end
 
         # Helper modules

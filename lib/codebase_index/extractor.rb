@@ -5,6 +5,7 @@ require "digest"
 require "fileutils"
 require "open3"
 require "pathname"
+require "set"
 
 require_relative "extracted_unit"
 require_relative "dependency_graph"
@@ -17,6 +18,7 @@ require_relative "extractors/mailer_extractor"
 require_relative "extractors/graphql_extractor"
 require_relative "extractors/rails_source_extractor"
 require_relative "graph_analyzer"
+require_relative "model_name_cache"
 
 module CodebaseIndex
   # Extractor is the main orchestrator for codebase extraction.
@@ -95,6 +97,7 @@ module CodebaseIndex
     # @return [Hash] Results keyed by extractor type
     def extract_all
       setup_output_directory
+      ModelNameCache.reset!
 
       # Eager load once — all extractors need loaded classes for introspection.
       safe_eager_load!
@@ -157,6 +160,8 @@ module CodebaseIndex
         @dependency_graph = DependencyGraph.from_h(JSON.parse(File.read(graph_path)))
       end
 
+      ModelNameCache.reset!
+
       # Eager load to ensure newly-added classes are discoverable.
       safe_eager_load!
 
@@ -170,13 +175,20 @@ module CodebaseIndex
       Rails.logger.info "[CodebaseIndex] #{changed_files.size} changed files affect #{affected_ids.size} units"
 
       # Re-extract affected units
+      affected_types = Set.new
       affected_ids.each do |unit_id|
-        re_extract_unit(unit_id)
+        re_extract_unit(unit_id, affected_types: affected_types)
       end
 
-      # Update graph and output
+      # Regenerate type indexes for affected types
+      affected_types.each do |type_key|
+        regenerate_type_index(type_key)
+      end
+
+      # Update graph, manifest, and summary
       write_dependency_graph
       write_manifest
+      write_structural_summary
 
       affected_ids
     end
@@ -244,10 +256,11 @@ module CodebaseIndex
 
     def resolve_dependents
       all_units = @results.values.flatten
+      unit_map = all_units.index_by(&:identifier)
 
       all_units.each do |unit|
         unit.dependencies.each do |dep|
-          target_unit = find_unit(all_units, dep[:target])
+          target_unit = unit_map[dep[:target]]
           if target_unit
             target_unit.dependents ||= []
             target_unit.dependents << {
@@ -259,10 +272,6 @@ module CodebaseIndex
       end
     end
 
-    def find_unit(units, identifier)
-      units.find { |u| u.identifier == identifier }
-    end
-
     # ──────────────────────────────────────────────────────────────────────
     # Git Enrichment
     # ──────────────────────────────────────────────────────────────────────
@@ -270,23 +279,39 @@ module CodebaseIndex
     def enrich_with_git_data
       return unless git_available?
 
+      # Collect all file paths that need git data
+      file_paths = []
       @results.each do |type, units|
-        # Skip framework/gem sources - they don't live in the project repo
         next if type == :rails_source || type == :gem_source
-
         units.each do |unit|
-          next unless unit.file_path && File.exist?(unit.file_path)
+          file_paths << unit.file_path if unit.file_path && File.exist?(unit.file_path)
+        end
+      end
 
-          unit.metadata[:git] = extract_git_data(unit.file_path)
+      # Batch-fetch all git data in minimal subprocess calls
+      git_data = batch_git_data(file_paths)
+      root = Rails.root.to_s + "/"
+
+      # Assign results to units
+      @results.each do |type, units|
+        next if type == :rails_source || type == :gem_source
+        units.each do |unit|
+          next unless unit.file_path
+          relative = unit.file_path.sub(root, "")
+          unit.metadata[:git] = git_data[relative] if git_data[relative]
         end
       end
     end
 
     def git_available?
-      _, status = Open3.capture2("git", "rev-parse", "--git-dir")
-      status.success?
-    rescue StandardError
-      false
+      return @git_available if defined?(@git_available)
+
+      @git_available = begin
+        _, status = Open3.capture2("git", "rev-parse", "--git-dir")
+        status.success?
+      rescue StandardError
+        false
+      end
     end
 
     # Safe git command execution — no shell interpolation
@@ -300,62 +325,100 @@ module CodebaseIndex
       ""
     end
 
-    def extract_git_data(file_path)
-      relative_path = file_path.sub(Rails.root.to_s + "/", "")
+    # Batch-fetch git data for all file paths in two git commands.
+    #
+    # @param file_paths [Array<String>] Absolute file paths
+    # @return [Hash{String => Hash}] Keyed by relative path
+    def batch_git_data(file_paths)
+      return {} if file_paths.empty?
 
-      {
-        last_modified: run_git("log", "-1", "--format=%cI", "--", relative_path).presence,
-        last_author: run_git("log", "-1", "--format=%an", "--", relative_path).presence,
-        commit_count: run_git("rev-list", "--count", "HEAD", "--", relative_path).to_i,
+      root = Rails.root.to_s + "/"
+      relative_paths = file_paths.map { |f| f.sub(root, "") }
+      result = {}
+      relative_paths.each { |rp| result[rp] = {} }
 
-        # Top contributors
-        contributors: extract_contributors(relative_path),
+      # 1. Batch log: one git command for per-file commit history
+      #    Format: HASH|||AUTHOR|||DATE|||SUBJECT followed by list of changed files
+      log_output = run_git(
+        "log", "--all", "--name-only",
+        "--format=__COMMIT__%H|||%an|||%cI|||%s",
+        "--since=365 days ago",
+        "--", *relative_paths
+      )
 
-        # Recent commits for context
-        recent_commits: extract_recent_commits(relative_path),
+      # Parse the log output to build per-file data
+      current_commit = nil
+      path_set = relative_paths.to_set
 
-        # Change frequency classification
-        change_frequency: calculate_change_frequency(relative_path)
-      }
-    rescue StandardError => e
-      Rails.logger.debug "[CodebaseIndex] Git data extraction failed for #{file_path}: #{e.message}"
-      {}
-    end
+      log_output.each_line do |line|
+        line = line.strip
+        next if line.empty?
 
-    def extract_contributors(relative_path)
-      output = run_git("shortlog", "-sn", "--no-merges", "--", relative_path)
-      output.lines.first(5).map do |line|
-        count, name = line.strip.split("\t", 2)
-        { name: name, commits: count.to_i }
+        if line.start_with?("__COMMIT__")
+          parts = line.sub("__COMMIT__", "").split("|||", 4)
+          current_commit = {
+            sha: parts[0],
+            author: parts[1],
+            date: parts[2],
+            message: parts[3]
+          }
+        elsif current_commit && path_set.include?(line)
+          entry = result[line] ||= {}
+
+          # Track last modified (first commit we see per file is the most recent)
+          unless entry[:last_modified]
+            entry[:last_modified] = current_commit[:date]
+            entry[:last_author] = current_commit[:author]
+          end
+
+          # Accumulate commits for this file
+          entry[:commits] ||= []
+          entry[:commits] << current_commit
+
+          # Track contributors
+          entry[:contributors] ||= Hash.new(0)
+          entry[:contributors][current_commit[:author]] += 1
+        end
       end
-    rescue StandardError
-      []
-    end
 
-    def extract_recent_commits(relative_path, limit: 5)
-      output = run_git("log", "-#{limit}", "--format=%H|||%s|||%cI|||%an", "--", relative_path)
-      output.lines.map do |line|
-        sha, message, date, author = line.strip.split("|||")
-        { sha: sha&.first(8), message: message, date: date, author: author }
+      # 2. Build final result hashes
+      ninety_days_ago = (Time.current - 90.days).iso8601
+
+      result.each do |relative_path, data|
+        all_commits = data[:commits] || []
+        contributor_counts = data[:contributors] || {}
+
+        recent_count = all_commits.count { |c| c[:date] && c[:date] > ninety_days_ago }
+        total_count = all_commits.size
+
+        change_frequency = if total_count <= 2
+          :new
+        elsif recent_count >= 10
+          :hot
+        elsif recent_count >= 3
+          :active
+        elsif recent_count >= 1
+          :stable
+        else
+          :dormant
+        end
+
+        result[relative_path] = {
+          last_modified: data[:last_modified],
+          last_author: data[:last_author],
+          commit_count: total_count,
+          contributors: contributor_counts
+            .sort_by { |_, count| -count }
+            .first(5)
+            .map { |name, count| { name: name, commits: count } },
+          recent_commits: all_commits.first(5).map do |c|
+            { sha: c[:sha]&.first(8), message: c[:message], date: c[:date], author: c[:author] }
+          end,
+          change_frequency: change_frequency
+        }
       end
-    rescue StandardError
-      []
-    end
 
-    def calculate_change_frequency(relative_path)
-      # Count commits in last 90 days
-      recent = run_git("rev-list", "--count", "--since=90 days ago", "HEAD", "--", relative_path).to_i
-
-      # Count total commits
-      total = run_git("rev-list", "--count", "HEAD", "--", relative_path).to_i
-
-      return :new if total <= 2
-      return :hot if recent >= 10
-      return :active if recent >= 3
-      return :stable if recent >= 1
-      :dormant
-    rescue StandardError
-      :unknown
+      result
     end
 
     # ──────────────────────────────────────────────────────────────────────
@@ -372,7 +435,7 @@ module CodebaseIndex
 
           File.write(
             type_dir.join(file_name),
-            JSON.pretty_generate(unit.to_h)
+            json_serialize(unit.to_h)
           )
         end
 
@@ -389,7 +452,7 @@ module CodebaseIndex
 
         File.write(
           type_dir.join("_index.json"),
-          JSON.pretty_generate(index)
+          json_serialize(index)
         )
       end
     end
@@ -400,7 +463,7 @@ module CodebaseIndex
 
       File.write(
         @output_dir.join("dependency_graph.json"),
-        JSON.pretty_generate(graph_data)
+        json_serialize(graph_data)
       )
     end
 
@@ -409,7 +472,7 @@ module CodebaseIndex
 
       File.write(
         @output_dir.join("graph_analysis.json"),
-        JSON.pretty_generate(@graph_analysis)
+        json_serialize(@graph_analysis)
       )
     end
 
@@ -437,11 +500,13 @@ module CodebaseIndex
 
       File.write(
         @output_dir.join("manifest.json"),
-        JSON.pretty_generate(manifest)
+        json_serialize(manifest)
       )
     end
 
     def write_structural_summary
+      return if @results.empty?
+
       summary = []
 
       summary << "# Codebase Index Summary"
@@ -482,6 +547,30 @@ module CodebaseIndex
       )
     end
 
+    def regenerate_type_index(type_key)
+      type_dir = @output_dir.join(type_key.to_s)
+      return unless type_dir.directory?
+
+      # Scan existing unit JSON files (exclude _index.json)
+      index = Dir[type_dir.join("*.json")].filter_map do |file|
+        next if File.basename(file) == "_index.json"
+
+        data = JSON.parse(File.read(file))
+        {
+          identifier: data["identifier"],
+          file_path: data["file_path"],
+          namespace: data["namespace"],
+          estimated_tokens: data["estimated_tokens"],
+          chunk_count: (data["chunks"] || []).size
+        }
+      end
+
+      File.write(
+        type_dir.join("_index.json"),
+        json_serialize(index)
+      )
+    end
+
     # ──────────────────────────────────────────────────────────────────────
     # Helpers
     # ──────────────────────────────────────────────────────────────────────
@@ -496,6 +585,14 @@ module CodebaseIndex
       schema_path = Rails.root.join("db/schema.rb")
       return nil unless schema_path.exist?
       Digest::SHA256.file(schema_path).hexdigest
+    end
+
+    def json_serialize(data)
+      if CodebaseIndex.configuration.pretty_json
+        JSON.pretty_generate(data)
+      else
+        JSON.generate(data)
+      end
     end
 
     def log_summary
@@ -518,7 +615,7 @@ module CodebaseIndex
     # Incremental Re-extraction
     # ──────────────────────────────────────────────────────────────────────
 
-    def re_extract_unit(unit_id)
+    def re_extract_unit(unit_id, affected_types: nil)
       # Framework source only changes on version updates
       if unit_id.start_with?("rails/") || unit_id.start_with?("gems/")
         Rails.logger.debug "[CodebaseIndex] Skipping framework re-extraction for #{unit_id}"
@@ -582,13 +679,16 @@ module CodebaseIndex
         # Update dependency graph
         @dependency_graph.register(unit)
 
+        # Track which type was affected
+        affected_types&.add(extractor_key)
+
         # Write updated unit
         type_dir = @output_dir.join(extractor_key.to_s)
         file_name = unit.identifier.gsub("::", "__").gsub(/[^a-zA-Z0-9_-]/, "_") + ".json"
 
         File.write(
           type_dir.join(file_name),
-          JSON.pretty_generate(unit.to_h)
+          json_serialize(unit.to_h)
         )
 
         Rails.logger.info "[CodebaseIndex] Re-extracted #{unit_id}"

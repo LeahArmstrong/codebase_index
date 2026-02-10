@@ -36,7 +36,7 @@ module CodebaseIndex
     attr_writer :output_dir
     attr_accessor :embedding_model, :max_context_tokens,
                   :similarity_threshold, :include_framework_sources,
-                  :gem_configs, :extractors
+                  :gem_configs, :extractors, :pretty_json
 
     def initialize
       @output_dir = nil # Resolved lazily; Rails.root is nil at require time
@@ -46,6 +46,7 @@ module CodebaseIndex
       @include_framework_sources = true
       @gem_configs = {}
       @extractors = %i[models controllers services components jobs mailers graphql rails_source]
+      @pretty_json = true
     end
 
     # @return [Pathname, String] Output directory, defaulting to Rails.root/tmp/codebase_index
