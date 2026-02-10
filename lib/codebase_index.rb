@@ -33,18 +33,24 @@ module CodebaseIndex
   # ════════════════════════════════════════════════════════════════════════
 
   class Configuration
-    attr_accessor :output_dir, :embedding_model, :max_context_tokens,
+    attr_writer :output_dir
+    attr_accessor :embedding_model, :max_context_tokens,
                   :similarity_threshold, :include_framework_sources,
                   :gem_configs, :extractors
 
     def initialize
-      @output_dir = defined?(Rails) ? Rails.root.join("tmp/codebase_index") : "tmp/codebase_index"
+      @output_dir = nil # Resolved lazily; Rails.root is nil at require time
       @embedding_model = "text-embedding-3-small"
       @max_context_tokens = 8000
       @similarity_threshold = 0.7
       @include_framework_sources = true
       @gem_configs = {}
       @extractors = %i[models controllers services components jobs mailers graphql rails_source]
+    end
+
+    # @return [Pathname, String] Output directory, defaulting to Rails.root/tmp/codebase_index
+    def output_dir
+      @output_dir ||= defined?(Rails) && Rails.root ? Rails.root.join("tmp/codebase_index") : "tmp/codebase_index"
     end
 
     # Add a gem to be indexed
@@ -97,3 +103,5 @@ module CodebaseIndex
   # Initialize with defaults
   configure
 end
+
+require_relative "codebase_index/railtie" if defined?(Rails::Railtie)
