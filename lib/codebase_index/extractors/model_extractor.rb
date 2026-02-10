@@ -110,7 +110,7 @@ module CodebaseIndex
         convention_path
       end
 
-      # Detect Rails-generated HABTM join models (e.g., Product::HABTB_Categories)
+      # Detect Rails-generated HABTM join models (e.g., Product::HABTM_Categories)
       #
       # @param model [Class] The ActiveRecord model class
       # @return [Boolean] true if the model is an auto-generated HABTM join class
