@@ -201,6 +201,13 @@ RSpec.describe CodebaseIndex::MCP::Server do
       expect(hub['dependents_truncated']).to be true
       expect(hub['dependents_total']).to eq(2)
     end
+
+    it 'handles negative limit without crashing' do
+      response = call_tool(server, 'graph_analysis', analysis: 'all', limit: -1)
+      data = parse_response(response)
+      expect(data['hubs']).to eq([])
+      expect(data).to have_key('stats')
+    end
   end
 
   describe 'tool: pagerank' do
