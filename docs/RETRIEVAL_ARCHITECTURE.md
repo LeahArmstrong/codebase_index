@@ -202,7 +202,6 @@ What kind of code unit is being asked about?
 - `job` - Background workers
 - `mailer` - Email senders
 - `component` - View components
-- `concern` - Shared modules
 - `graphql_type` - GraphQL object types, input types, enums, unions, interfaces
 - `graphql_mutation` - GraphQL mutations
 - `graphql_resolver` - GraphQL resolvers
@@ -579,23 +578,48 @@ module CodebaseIndex
         private
         
         def merge_candidates(candidates)
-          # TODO: Replace this ad-hoc score fusion with Reciprocal Rank Fusion (RRF).
-          # RRF is more robust when merging results from heterogeneous sources
-          # (vector similarity scores vs keyword match scores vs graph expansion).
+          # Reciprocal Rank Fusion (RRF) — robust score merging across
+          # heterogeneous retrieval sources without score normalization.
           #
-          # Group by identifier, combine scores from multiple sources
-          candidates
-            .group_by(&:identifier)
-            .map do |identifier, group|
-              merged_score = group.map(&:score).max + (group.size - 1) * 0.1
+          # RRF formula: score(d) = Σ 1/(k + rank_i(d))
+          # where k = 60 (standard constant that controls rank vs score balance)
+          #
+          # Each source's candidates are ranked independently, then RRF
+          # combines ranks into a single score. This avoids the problem of
+          # comparing vector similarity scores (0.0-1.0) against keyword
+          # match scores (arbitrary range) or graph expansion scores.
+          k = 60
+
+          # Build per-source ranked lists
+          by_source = candidates.group_by(&:source)
+          ranked_lists = by_source.transform_values do |source_candidates|
+            source_candidates.sort_by { |c| -c.score }.each_with_index.to_a
+          end
+
+          # Compute RRF score per identifier
+          rrf_scores = Hash.new(0.0)
+          source_map = Hash.new { |h, id| h[id] = [] }
+          metadata_map = {}
+
+          ranked_lists.each do |source, ranked|
+            ranked.each do |candidate, rank|
+              rrf_scores[candidate.identifier] += 1.0 / (k + rank)
+              source_map[candidate.identifier] << source
+              metadata_map[candidate.identifier] ||= candidate.metadata
+            end
+          end
+
+          # Build merged candidates sorted by RRF score
+          rrf_scores
+            .sort_by { |_id, score| -score }
+            .map do |identifier, score|
               Candidate.new(
                 identifier: identifier,
-                score: [merged_score, 1.0].min,
-                sources: group.map(&:source).uniq,
-                metadata: group.first.metadata
+                score: score,
+                sources: source_map[identifier].uniq,
+                metadata: metadata_map[identifier]
               )
             end
-            .sort_by { |c| -c.score }
         end
       end
     end
@@ -781,15 +805,15 @@ module CodebaseIndex
         end
         
         def search(vector:, filters: {}, limit: 10)
-          where_clause = build_where(filters)
-          
+          where_clause, filter_params = build_where(filters)
+
           results = @conn.exec_params(
             "SELECT id, metadata, 1 - (embedding <=> $1) as similarity
              FROM #{@table}
              #{where_clause}
              ORDER BY embedding <=> $1
              LIMIT $2",
-            ["[#{vector.join(',')}]", limit]
+            ["[#{vector.join(',')}]", limit, *filter_params]
           )
           
           results.map do |r|
@@ -817,21 +841,29 @@ module CodebaseIndex
               updated_at TIMESTAMP DEFAULT NOW()
             )
           SQL
-          @conn.exec("CREATE INDEX IF NOT EXISTS #{@table}_embedding_idx ON #{@table} USING ivfflat (embedding vector_cosine_ops)")
+          @conn.exec("CREATE INDEX IF NOT EXISTS #{@table}_embedding_idx ON #{@table} USING hnsw (embedding vector_cosine_ops) WITH (m = 16, ef_construction = 64)")
         end
         
         def build_where(filters)
-          return "" if filters.empty?
-          
-          conditions = filters.map do |key, value|
+          return ["", []] if filters.empty?
+
+          conditions = []
+          params = []
+          # Parameter index starts after the vector ($1) and limit ($2) params
+          param_idx = 3
+
+          filters.each do |key, value|
             if value.is_a?(Array)
-              "metadata->>'#{key}' IN (#{value.map { |v| "'#{v}'" }.join(',')})"
+              placeholders = value.map { params << _1.to_s; "$#{param_idx}".tap { param_idx += 1 } }
+              conditions << "metadata->>'#{key}' IN (#{placeholders.join(',')})"
             else
-              "metadata->>'#{key}' = '#{value}'"
+              conditions << "metadata->>'#{key}' = $#{param_idx}"
+              params << value.to_s
+              param_idx += 1
             end
           end
-          
-          "WHERE #{conditions.join(' AND ')}"
+
+          ["WHERE #{conditions.join(' AND ')}", params]
         end
       end
     end
@@ -954,7 +986,7 @@ module CodebaseIndex
         
         # Get subgraph containing specified types
         # Supported types include: :model, :controller, :service, :job, :mailer,
-        # :component, :concern, :graphql_type, :graphql_mutation, :graphql_resolver,
+        # :component, :graphql_type, :graphql_mutation, :graphql_resolver,
         # :graphql_query, :rails_source
         def subgraph_for_types(types)
           raise NotImplementedError
@@ -1053,9 +1085,9 @@ module CodebaseIndex
         MODELS = {
           "text-embedding-3-small" => { dimensions: 1536, max_tokens: 8191 },
           "text-embedding-3-large" => { dimensions: 3072, max_tokens: 8191 },
-          "text-embedding-ada-002" => { dimensions: 1536, max_tokens: 8191 }
+          "text-embedding-ada-002" => { dimensions: 1536, max_tokens: 8191 }  # Legacy — use text-embedding-3-small instead
         }.freeze
-        
+
         def initialize(api_key:, model: "text-embedding-3-small")
           @client = OpenAI::Client.new(api_key: api_key)
           @model = model
@@ -1848,7 +1880,61 @@ module CodebaseIndex
 end
 ```
 
-> **Future enhancement:** Cross-encoder reranking (e.g., a code-trained cross-encoder) can be added as a second-pass reranker after the lightweight scoring above. Cross-encoders jointly encode query + candidate for higher precision, at the cost of latency. Suitable for top-k refinement (k=10-20) after initial ranking.
+### Cross-Encoder Reranking (Optional)
+
+After initial ranking, an optional cross-encoder reranking stage can refine the top-k candidates before context assembly. Cross-encoders jointly encode the query and each candidate, producing higher-precision relevance scores than bi-encoder similarity — at the cost of additional latency.
+
+**When to use:** Enable for queries where precision matters more than latency (implementation tasks, debugging, impact analysis). Disable for latency-sensitive paths (editor autocomplete, real-time suggestions).
+
+**Pipeline position:**
+
+```
+Initial Retrieval (vector + keyword + graph)
+  → Lightweight Ranking (signal-weighted scoring)
+  → Cross-Encoder Reranking (top-k refinement, optional)
+  → Context Assembly (token budgeting)
+```
+
+**Reranker Interface:**
+
+```ruby
+module CodebaseIndex
+  module Retrieval
+    module Reranker
+      module Interface
+        # Rerank candidates against the original query.
+        # @param query [String] The original query text
+        # @param candidates [Array<Candidate>] Pre-ranked candidates (top-k from initial ranking)
+        # @return [Array<Candidate>] Re-scored and re-ordered candidates
+        def rerank(query, candidates)
+          raise NotImplementedError
+        end
+      end
+    end
+  end
+end
+```
+
+**Candidate providers:**
+
+| Provider | Strengths | Considerations |
+|----------|-----------|----------------|
+| Cohere Rerank | Purpose-built reranking API, easy integration | API dependency, per-query cost |
+| Voyage Reranker | Code-aware, pairs well with Voyage embeddings | API dependency |
+| Local cross-encoder | No API dependency, data stays on-premise | Requires GPU for acceptable latency |
+
+**Configuration:**
+
+```ruby
+CodebaseIndex.configure do |config|
+  # Enable cross-encoder reranking (default: disabled)
+  config.reranker = :cohere          # or :voyage, :local, :none
+  config.reranker_api_key = ENV["COHERE_API_KEY"]
+  config.reranker_top_k = 15        # Number of candidates to rerank
+end
+```
+
+Cross-encoder reranking is backend-agnostic and optional, consistent with the system's design principles. When disabled, the pipeline falls through directly from initial ranking to context assembly with no behavior change.
 
 ---
 
@@ -2111,10 +2197,10 @@ module CodebaseIndex
       @output_dir = default_output_dir
       @extractors = %i[models controllers services jobs mailers components graphql]
       
-      @embedding_provider = :openai
-      @embedding_model = "text-embedding-3-small"
-      
-      @vector_store = :qdrant
+      @embedding_provider = :ollama
+      @embedding_model = "nomic-embed-text"
+
+      @vector_store = :sqlite_faiss
       @vector_store_url = ENV.fetch("QDRANT_URL", "http://localhost:6333")
       @vector_store_collection = "codebase_index"
       
@@ -2417,7 +2503,7 @@ end
 services:
   bc_qdrant:
     container_name: bc_qdrant
-    image: qdrant/qdrant:v1.7.4
+    image: qdrant/qdrant:v1.12.1
     ports:
       - "6333:6333"
       - "6334:6334"  # gRPC

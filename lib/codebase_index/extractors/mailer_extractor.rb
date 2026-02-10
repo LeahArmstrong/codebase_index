@@ -1,6 +1,6 @@
 # frozen_string_literal: true
 
-require "digest"
+require 'digest'
 
 module CodebaseIndex
   module Extractors
@@ -46,7 +46,7 @@ module CodebaseIndex
           file_path: file_path
         )
 
-        source = file_path && File.exist?(file_path) ? File.read(file_path) : ""
+        source = file_path && File.exist?(file_path) ? File.read(file_path) : ''
 
         unit.namespace = extract_namespace(mailer)
         unit.source_code = annotate_source(source, mailer)
@@ -74,8 +74,8 @@ module CodebaseIndex
       end
 
       def extract_namespace(mailer)
-        parts = mailer.name.split("::")
-        parts.size > 1 ? parts[0..-2].join("::") : nil
+        parts = mailer.name.split('::')
+        parts.size > 1 ? parts[0..-2].join('::') : nil
       end
 
       # ──────────────────────────────────────────────────────────────────────
@@ -91,13 +91,13 @@ module CodebaseIndex
         end
 
         <<~ANNOTATION
-        # ╔═══════════════════════════════════════════════════════════════════════╗
-        # ║ Mailer: #{mailer.name.ljust(60)}║
-        # ║ Actions: #{actions.first(5).join(', ').ljust(59)}║
-        # ║ Default From: #{(default_from || 'not set').to_s.ljust(54)}║
-        # ╚═══════════════════════════════════════════════════════════════════════╝
+          # ╔═══════════════════════════════════════════════════════════════════════╗
+          # ║ Mailer: #{mailer.name.ljust(60)}║
+          # ║ Actions: #{actions.first(5).join(', ').ljust(59)}║
+          # ║ Default From: #{(default_from || 'not set').to_s.ljust(54)}║
+          # ╚═══════════════════════════════════════════════════════════════════════╝
 
-        #{source}
+          #{source}
         ANNOTATION
       end
 
@@ -132,7 +132,7 @@ module CodebaseIndex
 
           # Metrics
           action_count: actions.size,
-          loc: source.lines.count { |l| l.strip.present? && !l.strip.start_with?("#") }
+          loc: source.lines.count { |l| l.strip.present? && !l.strip.start_with?('#') }
         }
       end
 
@@ -156,20 +156,18 @@ module CodebaseIndex
         callbacks = []
 
         %i[before_action after_action around_action].each do |type|
-          begin
-            mailer.send("_#{type}_callbacks").each do |cb|
-              callbacks << {
-                type: type,
-                filter: cb.filter.to_s,
-                options: {
-                  only: cb.options[:only],
-                  except: cb.options[:except]
-                }.compact
-              }
-            end
-          rescue StandardError
-            # Callbacks not accessible
+          mailer.send("_#{type}_callbacks").each do |cb|
+            callbacks << {
+              type: type,
+              filter: cb.filter.to_s,
+              options: {
+                only: cb.options[:only],
+                except: cb.options[:except]
+              }.compact
+            }
           end
+        rescue StandardError
+          # Callbacks not accessible
         end
 
         callbacks
@@ -177,9 +175,7 @@ module CodebaseIndex
 
       def extract_layout(mailer, source)
         # From class definition
-        if source =~ /layout\s+['":](\w+)/
-          return $1
-        end
+        return ::Regexp.last_match(1) if source =~ /layout\s+['":](\w+)/
 
         # From class method
         begin
@@ -216,7 +212,7 @@ module CodebaseIndex
           ]
 
           found = view_paths.select { |p| File.exist?(p) }
-                           .map { |p| p.to_s.sub(Rails.root.to_s + "/", "") }
+                            .map { |p| p.to_s.sub(Rails.root.to_s + '/', '') }
 
           templates[action] = found if found.any?
         end
@@ -253,7 +249,7 @@ module CodebaseIndex
       # Action Chunks
       # ──────────────────────────────────────────────────────────────────────
 
-      def build_action_chunks(mailer, source)
+      def build_action_chunks(mailer, _source)
         mailer.action_methods.filter_map do |action|
           action_source = extract_action_source(mailer, action)
           next if action_source.nil? || action_source.strip.empty?
@@ -261,11 +257,11 @@ module CodebaseIndex
           templates = discover_templates(mailer, [action.to_s])[action.to_s] || []
 
           chunk_content = <<~ACTION
-          # Mailer: #{mailer.name}
-          # Action: #{action}
-          # Templates: #{templates.any? ? templates.join(', ') : 'none found'}
+            # Mailer: #{mailer.name}
+            # Action: #{action}
+            # Templates: #{templates.any? ? templates.join(', ') : 'none found'}
 
-          #{action_source}
+            #{action_source}
           ACTION
 
           {
@@ -309,7 +305,7 @@ module CodebaseIndex
             next
           end
 
-          break if current_indent <= indent && current_line.strip != ""
+          break if current_indent <= indent && current_line.strip != ''
 
           end_line += 1
         end

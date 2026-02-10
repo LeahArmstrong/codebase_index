@@ -1,6 +1,6 @@
 # frozen_string_literal: true
 
-require "set"
+require 'set'
 
 module CodebaseIndex
   # GraphAnalyzer computes structural properties of the dependency graph.
@@ -89,8 +89,8 @@ module CodebaseIndex
           dependents: dependents
         }
       end
-        .sort_by { |h| -h[:dependent_count] }
-        .first(limit)
+           .sort_by { |h| -h[:dependent_count] }
+           .first(limit)
     end
 
     # Detect circular dependency chains in the graph.
@@ -292,8 +292,7 @@ module CodebaseIndex
       start_index = path.index(cycle_start)
       return nil unless start_index
 
-      cycle = path[start_index..] + [cycle_start]
-      cycle
+      path[start_index..] + [cycle_start]
     end
 
     # Normalize a cycle so that duplicate rotations are treated as the same cycle.
@@ -304,12 +303,12 @@ module CodebaseIndex
     def normalize_cycle_signature(cycle)
       # Remove the trailing repeated element to get the raw loop
       loop_nodes = cycle[0..-2]
-      return loop_nodes.join("->") if loop_nodes.empty?
+      return loop_nodes.join('->') if loop_nodes.empty?
 
       # Rotate so the lexicographically smallest element is first
       min_index = loop_nodes.each_with_index.min_by { |node, _i| node }.last
       rotated = loop_nodes.rotate(min_index)
-      rotated.join("->")
+      rotated.join('->')
     end
 
     # ──────────────────────────────────────────────────────────────────────

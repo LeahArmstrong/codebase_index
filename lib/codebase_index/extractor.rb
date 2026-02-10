@@ -1,24 +1,26 @@
 # frozen_string_literal: true
 
-require "json"
-require "digest"
-require "fileutils"
-require "open3"
-require "pathname"
-require "set"
+require 'json'
+require 'digest'
+require 'fileutils'
+require 'open3'
+require 'pathname'
+require 'set'
 
-require_relative "extracted_unit"
-require_relative "dependency_graph"
-require_relative "extractors/model_extractor"
-require_relative "extractors/controller_extractor"
-require_relative "extractors/phlex_extractor"
-require_relative "extractors/service_extractor"
-require_relative "extractors/job_extractor"
-require_relative "extractors/mailer_extractor"
-require_relative "extractors/graphql_extractor"
-require_relative "extractors/rails_source_extractor"
-require_relative "graph_analyzer"
-require_relative "model_name_cache"
+require_relative 'extracted_unit'
+require_relative 'dependency_graph'
+require_relative 'extractors/model_extractor'
+require_relative 'extractors/controller_extractor'
+require_relative 'extractors/phlex_extractor'
+require_relative 'extractors/service_extractor'
+require_relative 'extractors/job_extractor'
+require_relative 'extractors/mailer_extractor'
+require_relative 'extractors/graphql_extractor'
+require_relative 'extractors/serializer_extractor'
+require_relative 'extractors/rails_source_extractor'
+require_relative 'extractors/view_component_extractor'
+require_relative 'graph_analyzer'
+require_relative 'model_name_cache'
 
 module CodebaseIndex
   # Extractor is the main orchestrator for codebase extraction.
@@ -49,6 +51,9 @@ module CodebaseIndex
       operations
       commands
       use_cases
+      serializers
+      decorators
+      blueprinters
     ].freeze
 
     EXTRACTORS = {
@@ -56,9 +61,11 @@ module CodebaseIndex
       controllers: Extractors::ControllerExtractor,
       graphql: Extractors::GraphQLExtractor,
       components: Extractors::PhlexExtractor,
+      view_components: Extractors::ViewComponentExtractor,
       services: Extractors::ServiceExtractor,
       jobs: Extractors::JobExtractor,
       mailers: Extractors::MailerExtractor,
+      serializers: Extractors::SerializerExtractor,
       rails_source: Extractors::RailsSourceExtractor
     }.freeze
 
@@ -71,19 +78,21 @@ module CodebaseIndex
       controller: :controllers,
       service: :services,
       component: :components,
+      view_component: :view_components,
       job: :jobs,
       mailer: :mailers,
       graphql_type: :graphql,
       graphql_mutation: :graphql,
       graphql_resolver: :graphql,
       graphql_query: :graphql,
+      serializer: :serializers,
       rails_source: :rails_source
     }.freeze
 
     attr_reader :output_dir, :dependency_graph
 
     def initialize(output_dir: nil)
-      @output_dir = Pathname.new(output_dir || Rails.root.join("tmp/codebase_index"))
+      @output_dir = Pathname.new(output_dir || Rails.root.join('tmp/codebase_index'))
       @dependency_graph = DependencyGraph.new
       @results = {}
     end
@@ -120,19 +129,19 @@ module CodebaseIndex
       end
 
       # Phase 2: Resolve dependents (reverse dependencies)
-      Rails.logger.info "[CodebaseIndex] Resolving dependents..."
+      Rails.logger.info '[CodebaseIndex] Resolving dependents...'
       resolve_dependents
 
       # Phase 3: Graph analysis (PageRank, structural metrics)
-      Rails.logger.info "[CodebaseIndex] Analyzing dependency graph..."
+      Rails.logger.info '[CodebaseIndex] Analyzing dependency graph...'
       @graph_analysis = GraphAnalyzer.new(@dependency_graph).analyze
 
       # Phase 4: Enrich with git data
-      Rails.logger.info "[CodebaseIndex] Enriching with git data..."
+      Rails.logger.info '[CodebaseIndex] Enriching with git data...'
       enrich_with_git_data
 
       # Phase 5: Write output
-      Rails.logger.info "[CodebaseIndex] Writing output..."
+      Rails.logger.info '[CodebaseIndex] Writing output...'
       write_results
       write_dependency_graph
       write_graph_analysis
@@ -155,10 +164,8 @@ module CodebaseIndex
     # @return [Array<String>] List of re-extracted unit identifiers
     def extract_changed(changed_files)
       # Load existing graph
-      graph_path = @output_dir.join("dependency_graph.json")
-      if graph_path.exist?
-        @dependency_graph = DependencyGraph.from_h(JSON.parse(File.read(graph_path)))
-      end
+      graph_path = @output_dir.join('dependency_graph.json')
+      @dependency_graph = DependencyGraph.from_h(JSON.parse(File.read(graph_path))) if graph_path.exist?
 
       ModelNameCache.reset!
 
@@ -209,7 +216,7 @@ module CodebaseIndex
       Rails.application.eager_load!
     rescue NameError => e
       Rails.logger.warn "[CodebaseIndex] eager_load! hit NameError: #{e.message}"
-      Rails.logger.warn "[CodebaseIndex] Falling back to per-directory eager loading"
+      Rails.logger.warn '[CodebaseIndex] Falling back to per-directory eager loading'
       eager_load_extraction_directories
     end
 
@@ -220,14 +227,14 @@ module CodebaseIndex
       loader = Rails.autoloaders.main
 
       EXTRACTION_DIRECTORIES.each do |subdir|
-        dir = Rails.root.join("app", subdir)
+        dir = Rails.root.join('app', subdir)
         next unless dir.exist?
 
         begin
           if loader.respond_to?(:eager_load_dir)
             loader.eager_load_dir(dir.to_s)
           else
-            Dir.glob(dir.join("**/*.rb")).sort.each do |file|
+            Dir.glob(dir.join('**/*.rb')).sort.each do |file|
               require file
             rescue NameError, LoadError => e
               Rails.logger.warn "[CodebaseIndex] Skipped #{file}: #{e.message}"
@@ -261,13 +268,13 @@ module CodebaseIndex
       all_units.each do |unit|
         unit.dependencies.each do |dep|
           target_unit = unit_map[dep[:target]]
-          if target_unit
-            target_unit.dependents ||= []
-            target_unit.dependents << {
-              type: unit.type,
-              identifier: unit.identifier
-            }
-          end
+          next unless target_unit
+
+          target_unit.dependents ||= []
+          target_unit.dependents << {
+            type: unit.type,
+            identifier: unit.identifier
+          }
         end
       end
     end
@@ -282,7 +289,8 @@ module CodebaseIndex
       # Collect all file paths that need git data
       file_paths = []
       @results.each do |type, units|
-        next if type == :rails_source || type == :gem_source
+        next if %i[rails_source gem_source].include?(type)
+
         units.each do |unit|
           file_paths << unit.file_path if unit.file_path && File.exist?(unit.file_path)
         end
@@ -290,14 +298,16 @@ module CodebaseIndex
 
       # Batch-fetch all git data in minimal subprocess calls
       git_data = batch_git_data(file_paths)
-      root = Rails.root.to_s + "/"
+      root = Rails.root.to_s + '/'
 
       # Assign results to units
       @results.each do |type, units|
-        next if type == :rails_source || type == :gem_source
+        next if %i[rails_source gem_source].include?(type)
+
         units.each do |unit|
           next unless unit.file_path
-          relative = unit.file_path.sub(root, "")
+
+          relative = unit.file_path.sub(root, '')
           unit.metadata[:git] = git_data[relative] if git_data[relative]
         end
       end
@@ -307,7 +317,7 @@ module CodebaseIndex
       return @git_available if defined?(@git_available)
 
       @git_available = begin
-        _, status = Open3.capture2("git", "rev-parse", "--git-dir")
+        _, status = Open3.capture2('git', 'rev-parse', '--git-dir')
         status.success?
       rescue StandardError
         false
@@ -319,10 +329,10 @@ module CodebaseIndex
     # @param args [Array<String>] Git command arguments
     # @return [String] Command output (empty string on failure)
     def run_git(*args)
-      output, status = Open3.capture2("git", *args)
-      status.success? ? output.strip : ""
+      output, status = Open3.capture2('git', *args)
+      status.success? ? output.strip : ''
     rescue StandardError
-      ""
+      ''
     end
 
     # Batch-fetch git data for all file paths in two git commands.
@@ -332,18 +342,18 @@ module CodebaseIndex
     def batch_git_data(file_paths)
       return {} if file_paths.empty?
 
-      root = Rails.root.to_s + "/"
-      relative_paths = file_paths.map { |f| f.sub(root, "") }
+      root = Rails.root.to_s + '/'
+      relative_paths = file_paths.map { |f| f.sub(root, '') }
       result = {}
       relative_paths.each { |rp| result[rp] = {} }
 
       # 1. Batch log: one git command for per-file commit history
       #    Format: HASH|||AUTHOR|||DATE|||SUBJECT followed by list of changed files
       log_output = run_git(
-        "log", "--all", "--name-only",
-        "--format=__COMMIT__%H|||%an|||%cI|||%s",
-        "--since=365 days ago",
-        "--", *relative_paths
+        'log', '--all', '--name-only',
+        '--format=__COMMIT__%H|||%an|||%cI|||%s',
+        '--since=365 days ago',
+        '--', *relative_paths
       )
 
       # Parse the log output to build per-file data
@@ -354,8 +364,8 @@ module CodebaseIndex
         line = line.strip
         next if line.empty?
 
-        if line.start_with?("__COMMIT__")
-          parts = line.sub("__COMMIT__", "").split("|||", 4)
+        if line.start_with?('__COMMIT__')
+          parts = line.sub('__COMMIT__', '').split('|||', 4)
           current_commit = {
             sha: parts[0],
             author: parts[1],
@@ -392,25 +402,25 @@ module CodebaseIndex
         total_count = all_commits.size
 
         change_frequency = if total_count <= 2
-          :new
-        elsif recent_count >= 10
-          :hot
-        elsif recent_count >= 3
-          :active
-        elsif recent_count >= 1
-          :stable
-        else
-          :dormant
-        end
+                             :new
+                           elsif recent_count >= 10
+                             :hot
+                           elsif recent_count >= 3
+                             :active
+                           elsif recent_count >= 1
+                             :stable
+                           else
+                             :dormant
+                           end
 
         result[relative_path] = {
           last_modified: data[:last_modified],
           last_author: data[:last_author],
           commit_count: total_count,
           contributors: contributor_counts
-            .sort_by { |_, count| -count }
-            .first(5)
-            .map { |name, count| { name: name, commits: count } },
+                        .sort_by { |_, count| -count }
+                        .first(5)
+                        .map { |name, count| { name: name, commits: count } },
           recent_commits: all_commits.first(5).map do |c|
             { sha: c[:sha]&.first(8), message: c[:message], date: c[:date], author: c[:author] }
           end,
@@ -431,7 +441,7 @@ module CodebaseIndex
 
         units.each do |unit|
           # Create safe filename from identifier
-          file_name = unit.identifier.gsub("::", "__").gsub(/[^a-zA-Z0-9_-]/, "_") + ".json"
+          file_name = unit.identifier.gsub('::', '__').gsub(/[^a-zA-Z0-9_-]/, '_') + '.json'
 
           File.write(
             type_dir.join(file_name),
@@ -451,7 +461,7 @@ module CodebaseIndex
         end
 
         File.write(
-          type_dir.join("_index.json"),
+          type_dir.join('_index.json'),
           json_serialize(index)
         )
       end
@@ -462,7 +472,7 @@ module CodebaseIndex
       graph_data[:pagerank] = @dependency_graph.pagerank
 
       File.write(
-        @output_dir.join("dependency_graph.json"),
+        @output_dir.join('dependency_graph.json'),
         json_serialize(graph_data)
       )
     end
@@ -471,7 +481,7 @@ module CodebaseIndex
       return unless @graph_analysis
 
       File.write(
-        @output_dir.join("graph_analysis.json"),
+        @output_dir.join('graph_analysis.json'),
         json_serialize(@graph_analysis)
       )
     end
@@ -490,8 +500,8 @@ module CodebaseIndex
         total_chunks: @results.values.flatten.sum { |u| u.chunks.size },
 
         # Git info
-        git_sha: run_git("rev-parse", "HEAD").presence,
-        git_branch: run_git("rev-parse", "--abbrev-ref", "HEAD").presence,
+        git_sha: run_git('rev-parse', 'HEAD').presence,
+        git_branch: run_git('rev-parse', '--abbrev-ref', 'HEAD').presence,
 
         # For change detection
         gemfile_lock_sha: gemfile_lock_sha,
@@ -499,7 +509,7 @@ module CodebaseIndex
       }
 
       File.write(
-        @output_dir.join("manifest.json"),
+        @output_dir.join('manifest.json'),
         json_serialize(manifest)
       )
     end
@@ -509,40 +519,40 @@ module CodebaseIndex
 
       summary = []
 
-      summary << "# Codebase Index Summary"
+      summary << '# Codebase Index Summary'
       summary << "Generated: #{Time.current.iso8601}"
       summary << "Rails #{Rails.version} / Ruby #{RUBY_VERSION}"
-      summary << ""
+      summary << ''
 
       @results.each do |type, units|
         summary << "## #{type.to_s.titleize} (#{units.size})"
-        summary << ""
+        summary << ''
 
         # Group by namespace
-        by_namespace = units.group_by { |u| u.namespace || "(root)" }
+        by_namespace = units.group_by { |u| u.namespace || '(root)' }
         by_namespace.sort.each do |ns, ns_units|
           summary << "### #{ns}"
           ns_units.sort_by(&:identifier).each do |unit|
-            chunks = unit.chunks.any? ? " [#{unit.chunks.size} chunks]" : ""
+            chunks = unit.chunks.any? ? " [#{unit.chunks.size} chunks]" : ''
             summary << "- #{unit.identifier}#{chunks}"
           end
-          summary << ""
+          summary << ''
         end
       end
 
       # Dependency summary
-      summary << "## Dependency Overview"
-      summary << ""
+      summary << '## Dependency Overview'
+      summary << ''
 
       graph_stats = @dependency_graph.to_h[:stats]
       if graph_stats
         summary << "- Total nodes: #{graph_stats[:node_count]}"
         summary << "- Total edges: #{graph_stats[:edge_count]}"
       end
-      summary << ""
+      summary << ''
 
       File.write(
-        @output_dir.join("SUMMARY.md"),
+        @output_dir.join('SUMMARY.md'),
         summary.join("\n")
       )
     end
@@ -552,21 +562,21 @@ module CodebaseIndex
       return unless type_dir.directory?
 
       # Scan existing unit JSON files (exclude _index.json)
-      index = Dir[type_dir.join("*.json")].filter_map do |file|
-        next if File.basename(file) == "_index.json"
+      index = Dir[type_dir.join('*.json')].filter_map do |file|
+        next if File.basename(file) == '_index.json'
 
         data = JSON.parse(File.read(file))
         {
-          identifier: data["identifier"],
-          file_path: data["file_path"],
-          namespace: data["namespace"],
-          estimated_tokens: data["estimated_tokens"],
-          chunk_count: (data["chunks"] || []).size
+          identifier: data['identifier'],
+          file_path: data['file_path'],
+          namespace: data['namespace'],
+          estimated_tokens: data['estimated_tokens'],
+          chunk_count: (data['chunks'] || []).size
         }
       end
 
       File.write(
-        type_dir.join("_index.json"),
+        type_dir.join('_index.json'),
         json_serialize(index)
       )
     end
@@ -576,14 +586,16 @@ module CodebaseIndex
     # ──────────────────────────────────────────────────────────────────────
 
     def gemfile_lock_sha
-      lock_path = Rails.root.join("Gemfile.lock")
+      lock_path = Rails.root.join('Gemfile.lock')
       return nil unless lock_path.exist?
+
       Digest::SHA256.file(lock_path).hexdigest
     end
 
     def schema_sha
-      schema_path = Rails.root.join("db/schema.rb")
+      schema_path = Rails.root.join('db/schema.rb')
       return nil unless schema_path.exist?
+
       Digest::SHA256.file(schema_path).hexdigest
     end
 
@@ -599,16 +611,16 @@ module CodebaseIndex
       total = @results.values.sum(&:size)
       chunks = @results.values.flatten.sum { |u| u.chunks.size }
 
-      Rails.logger.info "[CodebaseIndex] ═══════════════════════════════════════════"
-      Rails.logger.info "[CodebaseIndex] Extraction Complete"
-      Rails.logger.info "[CodebaseIndex] ═══════════════════════════════════════════"
+      Rails.logger.info '[CodebaseIndex] ═══════════════════════════════════════════'
+      Rails.logger.info '[CodebaseIndex] Extraction Complete'
+      Rails.logger.info '[CodebaseIndex] ═══════════════════════════════════════════'
       @results.each do |type, units|
         Rails.logger.info "[CodebaseIndex]   #{type}: #{units.size} units"
       end
-      Rails.logger.info "[CodebaseIndex] ───────────────────────────────────────────"
+      Rails.logger.info '[CodebaseIndex] ───────────────────────────────────────────'
       Rails.logger.info "[CodebaseIndex]   Total: #{total} units, #{chunks} chunks"
       Rails.logger.info "[CodebaseIndex]   Output: #{@output_dir}"
-      Rails.logger.info "[CodebaseIndex] ═══════════════════════════════════════════"
+      Rails.logger.info '[CodebaseIndex] ═══════════════════════════════════════════'
     end
 
     # ──────────────────────────────────────────────────────────────────────
@@ -617,7 +629,7 @@ module CodebaseIndex
 
     def re_extract_unit(unit_id, affected_types: nil)
       # Framework source only changes on version updates
-      if unit_id.start_with?("rails/") || unit_id.start_with?("gems/")
+      if unit_id.start_with?('rails/') || unit_id.start_with?('gems/')
         Rails.logger.debug "[CodebaseIndex] Skipping framework re-extraction for #{unit_id}"
         return
       end
@@ -662,6 +674,13 @@ module CodebaseIndex
                  nil
                end
                extractor.extract_component(klass) if klass
+             when :view_component
+               klass = begin
+                 unit_id.constantize
+               rescue StandardError
+                 nil
+               end
+               extractor.extract_component(klass) if klass
              when :job
                extractor.extract_job_file(file_path)
              when :mailer
@@ -671,28 +690,30 @@ module CodebaseIndex
                  nil
                end
                extractor.extract_mailer(klass) if klass
+             when :serializer
+               extractor.extract_serializer_file(file_path)
              when :graphql_type, :graphql_mutation, :graphql_resolver, :graphql_query
                extractor.extract_graphql_file(file_path)
              end
 
-      if unit
-        # Update dependency graph
-        @dependency_graph.register(unit)
+      return unless unit
 
-        # Track which type was affected
-        affected_types&.add(extractor_key)
+      # Update dependency graph
+      @dependency_graph.register(unit)
 
-        # Write updated unit
-        type_dir = @output_dir.join(extractor_key.to_s)
-        file_name = unit.identifier.gsub("::", "__").gsub(/[^a-zA-Z0-9_-]/, "_") + ".json"
+      # Track which type was affected
+      affected_types&.add(extractor_key)
 
-        File.write(
-          type_dir.join(file_name),
-          json_serialize(unit.to_h)
-        )
+      # Write updated unit
+      type_dir = @output_dir.join(extractor_key.to_s)
+      file_name = unit.identifier.gsub('::', '__').gsub(/[^a-zA-Z0-9_-]/, '_') + '.json'
 
-        Rails.logger.info "[CodebaseIndex] Re-extracted #{unit_id}"
-      end
+      File.write(
+        type_dir.join(file_name),
+        json_serialize(unit.to_h)
+      )
+
+      Rails.logger.info "[CodebaseIndex] Re-extracted #{unit_id}"
     end
   end
 end

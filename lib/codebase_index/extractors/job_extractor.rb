@@ -41,7 +41,7 @@ module CodebaseIndex
 
         # File-based discovery (catches everything)
         @directories.each do |dir|
-          Dir[dir.join("**/*.rb")].each do |file|
+          Dir[dir.join('**/*.rb')].each do |file|
             unit = extract_job_file(file)
             units << unit if unit
           end
@@ -52,6 +52,7 @@ module CodebaseIndex
           seen = units.map(&:identifier).to_set
           ApplicationJob.descendants.each do |job_class|
             next if seen.include?(job_class.name)
+
             unit = extract_job_class(job_class)
             if unit
               units << unit
@@ -99,7 +100,7 @@ module CodebaseIndex
         return nil if job_class.name.nil?
 
         file_path = source_file_for(job_class)
-        source = file_path && File.exist?(file_path) ? File.read(file_path) : ""
+        source = file_path && File.exist?(file_path) ? File.read(file_path) : ''
 
         unit = ExtractedUnit.new(
           type: :job,
@@ -126,15 +127,13 @@ module CodebaseIndex
 
       def extract_class_name(file_path, source)
         # Try to extract from source
-        if source =~ /^\s*class\s+([\w:]+)/
-          return $1
-        end
+        return ::Regexp.last_match(1) if source =~ /^\s*class\s+([\w:]+)/
 
         # Fall back to convention
         file_path
-          .sub(Rails.root.to_s + "/", "")
-          .sub(%r{^app/(jobs|workers|sidekiq)/}, "")
-          .sub(".rb", "")
+          .sub(Rails.root.to_s + '/', '')
+          .sub(%r{^app/(jobs|workers|sidekiq)/}, '')
+          .sub('.rb', '')
           .camelize
       end
 
@@ -157,8 +156,8 @@ module CodebaseIndex
       end
 
       def extract_namespace(class_name)
-        parts = class_name.split("::")
-        parts.size > 1 ? parts[0..-2].join("::") : nil
+        parts = class_name.split('::')
+        parts.size > 1 ? parts[0..-2].join('::') : nil
       end
 
       # ──────────────────────────────────────────────────────────────────────
@@ -170,13 +169,13 @@ module CodebaseIndex
         queue = extract_queue(source)
 
         <<~ANNOTATION
-        # ╔═══════════════════════════════════════════════════════════════════════╗
-        # ║ Job: #{class_name.ljust(62)}║
-        # ║ Type: #{job_type.to_s.ljust(61)}║
-        # ║ Queue: #{(queue || 'default').ljust(60)}║
-        # ╚═══════════════════════════════════════════════════════════════════════╝
+          # ╔═══════════════════════════════════════════════════════════════════════╗
+          # ║ Job: #{class_name.ljust(62)}║
+          # ║ Type: #{job_type.to_s.ljust(61)}║
+          # ║ Queue: #{(queue || 'default').ljust(60)}║
+          # ╚═══════════════════════════════════════════════════════════════════════╝
 
-        #{source}
+          #{source}
         ANNOTATION
       end
 
@@ -185,19 +184,16 @@ module CodebaseIndex
         return :active_job if source.match?(/< (ApplicationJob|ActiveJob::Base)/)
         return :good_job if source.match?(/include GoodJob/)
         return :delayed_job if source.match?(/delay|handle_asynchronously/)
+
         :unknown
       end
 
       def extract_queue(source)
         # ActiveJob style
-        if source =~ /queue_as\s+[:"'](\w+)/
-          return $1
-        end
+        return ::Regexp.last_match(1) if source =~ /queue_as\s+[:"'](\w+)/
 
         # Sidekiq style
-        if source =~ /sidekiq_options.*queue:\s*[:"'](\w+)/
-          return $1
-        end
+        return ::Regexp.last_match(1) if source =~ /sidekiq_options.*queue:\s*[:"'](\w+)/
 
         nil
       end
@@ -206,7 +202,7 @@ module CodebaseIndex
       # Metadata Extraction (from source)
       # ──────────────────────────────────────────────────────────────────────
 
-      def extract_metadata_from_source(source, class_name)
+      def extract_metadata_from_source(source, _class_name)
         {
           job_type: detect_job_type(source),
           queue: extract_queue(source),
@@ -228,7 +224,7 @@ module CodebaseIndex
           callbacks: extract_callbacks(source),
 
           # Metrics
-          loc: source.lines.count { |l| l.strip.present? && !l.strip.start_with?("#") }
+          loc: source.lines.count { |l| l.strip.present? && !l.strip.start_with?('#') }
         }
       end
 
@@ -236,13 +232,9 @@ module CodebaseIndex
         base_metadata = extract_metadata_from_source(source, job_class.name)
 
         # Enhance with runtime introspection if available
-        if job_class.respond_to?(:queue_name)
-          base_metadata[:queue] ||= job_class.queue_name
-        end
+        base_metadata[:queue] ||= job_class.queue_name if job_class.respond_to?(:queue_name)
 
-        if job_class.respond_to?(:sidekiq_options_hash)
-          base_metadata[:sidekiq_options] = job_class.sidekiq_options_hash
-        end
+        base_metadata[:sidekiq_options] = job_class.sidekiq_options_hash if job_class.respond_to?(:sidekiq_options_hash)
 
         base_metadata
       end
@@ -251,7 +243,7 @@ module CodebaseIndex
         options = {}
 
         if source =~ /sidekiq_options\s+(.+)/
-          opts_str = $1
+          opts_str = ::Regexp.last_match(1)
           opts_str.scan(/(\w+):\s*([^,\n]+)/) do |key, value|
             options[key.to_sym] = value.strip
           end
@@ -274,9 +266,7 @@ module CodebaseIndex
         end
 
         # Sidekiq retries
-        if source =~ /sidekiq_options.*retry:\s*(\d+|false|true)/
-          config[:sidekiq_retries] = $1
-        end
+        config[:sidekiq_retries] = ::Regexp.last_match(1) if source =~ /sidekiq_options.*retry:\s*(\d+|false|true)/
 
         config
       end
@@ -285,14 +275,10 @@ module CodebaseIndex
         controls = {}
 
         # Sidekiq unique jobs
-        if source =~ /unique_for:\s*(\d+)/
-          controls[:unique_for] = $1.to_i
-        end
+        controls[:unique_for] = ::Regexp.last_match(1).to_i if source =~ /unique_for:\s*(\d+)/
 
         # Sidekiq rate limiting
-        if source =~ /rate_limit:\s*\{([^}]+)\}/
-          controls[:rate_limit] = $1
-        end
+        controls[:rate_limit] = ::Regexp.last_match(1) if source =~ /rate_limit:\s*\{([^}]+)\}/
 
         controls
       end
@@ -300,13 +286,17 @@ module CodebaseIndex
       def extract_perform_params(source)
         return [] unless source =~ /def\s+perform\s*\(([^)]*)\)/
 
-        params_str = $1
+        params_str = ::Regexp.last_match(1)
         params = []
 
         params_str.scan(/(\*?\*?\w+)(?:\s*=\s*([^,]+))?/) do |name, default|
           params << {
-            name: name.gsub(/^\*+/, ""),
-            splat: name.start_with?("**") ? :double : (name.start_with?("*") ? :single : nil),
+            name: name.gsub(/^\*+/, ''),
+            splat: if name.start_with?('**')
+                     :double
+                   else
+                     (name.start_with?('*') ? :single : nil)
+                   end,
             has_default: !default.nil?
           }
         end
@@ -366,9 +356,7 @@ module CodebaseIndex
           deps << { type: :external, target: :http_api, via: :code_reference }
         end
 
-        if source.match?(/Redis\.current|REDIS/)
-          deps << { type: :infrastructure, target: :redis, via: :code_reference }
-        end
+        deps << { type: :infrastructure, target: :redis, via: :code_reference } if source.match?(/Redis\.current|REDIS/)
 
         deps.uniq { |d| [d[:type], d[:target]] }
       end

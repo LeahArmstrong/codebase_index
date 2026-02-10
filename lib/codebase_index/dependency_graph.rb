@@ -1,7 +1,7 @@
 # frozen_string_literal: true
 
-require "set"
-require "json"
+require 'set'
+require 'json'
 
 module CodebaseIndex
   # DependencyGraph tracks relationships between code units for:
@@ -145,7 +145,7 @@ module CodebaseIndex
       {
         nodes: @nodes.select { |id, _| included_ids.include?(id) },
         edges: @edges.select { |id, _| included_ids.include?(id) }
-                     .transform_values { |deps| deps.select { |d| included_ids.include?(d) } }
+               .transform_values { |deps| deps.select { |d| included_ids.include?(d) } }
       }
     end
 
@@ -168,7 +168,7 @@ module CodebaseIndex
       iterations.times do
         # Collect rank from dangling nodes (no outgoing edges) and redistribute
         dangling_sum = @nodes.keys.sum do |id|
-          (@edges[id].nil? || @edges[id].empty?) ? scores[id] : 0.0
+          @edges[id].nil? || @edges[id].empty? ? scores[id] : 0.0
         end
 
         new_scores = {}
@@ -219,14 +219,14 @@ module CodebaseIndex
     def self.from_h(data)
       graph = new
 
-      raw_nodes = data[:nodes] || data["nodes"] || {}
+      raw_nodes = data[:nodes] || data['nodes'] || {}
       graph.instance_variable_set(:@nodes, raw_nodes.transform_values { |v| symbolize_node(v) })
 
-      graph.instance_variable_set(:@edges, data[:edges] || data["edges"] || {})
-      graph.instance_variable_set(:@reverse, data[:reverse] || data["reverse"] || {})
-      graph.instance_variable_set(:@file_map, data[:file_map] || data["file_map"] || {})
+      graph.instance_variable_set(:@edges, data[:edges] || data['edges'] || {})
+      graph.instance_variable_set(:@reverse, data[:reverse] || data['reverse'] || {})
+      graph.instance_variable_set(:@file_map, data[:file_map] || data['file_map'] || {})
 
-      raw_type_index = data[:type_index] || data["type_index"] || {}
+      raw_type_index = data[:type_index] || data['type_index'] || {}
       graph.instance_variable_set(:@type_index, raw_type_index.transform_keys(&:to_sym))
 
       graph
@@ -240,9 +240,9 @@ module CodebaseIndex
       return node unless node.is_a?(Hash)
 
       {
-        type: (node[:type] || node["type"])&.to_sym,
-        file_path: node[:file_path] || node["file_path"],
-        namespace: node[:namespace] || node["namespace"]
+        type: (node[:type] || node['type'])&.to_sym,
+        file_path: node[:file_path] || node['file_path'],
+        namespace: node[:namespace] || node['namespace']
       }
     end
   end
