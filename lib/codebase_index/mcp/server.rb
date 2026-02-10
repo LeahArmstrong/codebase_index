@@ -57,6 +57,7 @@ module CodebaseIndex
         def truncate_section(array, limit)
           return array unless array.is_a?(Array)
 
+          limit = [limit, 0].max
           array.first(limit).map do |item|
             next item unless item.is_a?(Hash) && item['dependents'].is_a?(Array) && item['dependents'].size > limit
 
