@@ -91,7 +91,7 @@ module CodebaseIndex
               always_include = %w[type identifier file_path namespace]
               filtered = unit
               filtered = filtered.except('source_code') if include_source == false
-              if sections
+              if sections&.any?
                 allowed = (always_include + sections).to_set
                 filtered = filtered.select { |k, _| allowed.include?(k) }
               end
