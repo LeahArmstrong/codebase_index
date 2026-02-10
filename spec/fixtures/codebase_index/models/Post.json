@@ -1,0 +1,25 @@
+{
+  "type": "model",
+  "identifier": "Post",
+  "file_path": "app/models/post.rb",
+  "namespace": null,
+  "source_code": "class Post < ApplicationRecord\n  has_many :comments\n  validates :title, presence: true\nend\n",
+  "metadata": {
+    "table_name": "posts",
+    "primary_key": "id",
+    "associations": [
+      { "type": "has_many", "name": "comments", "class_name": "Comment" }
+    ],
+    "validations": [
+      { "type": "presence", "attributes": ["title"] }
+    ],
+    "callbacks": [],
+    "scopes": [],
+    "parent_class": "ApplicationRecord"
+  },
+  "dependencies": [],
+  "dependents": ["Comment", "PostsController"],
+  "chunks": [],
+  "extracted_at": "2026-01-15T12:00:00Z",
+  "source_hash": "abc123"
+}

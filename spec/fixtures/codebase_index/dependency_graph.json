@@ -1,0 +1,46 @@
+{
+  "nodes": {
+    "Post": {
+      "type": "model",
+      "file_path": "app/models/post.rb",
+      "namespace": null
+    },
+    "Comment": {
+      "type": "model",
+      "file_path": "app/models/comment.rb",
+      "namespace": null
+    },
+    "PostsController": {
+      "type": "controller",
+      "file_path": "app/controllers/posts_controller.rb",
+      "namespace": null
+    }
+  },
+  "edges": {
+    "Post": [],
+    "Comment": ["Post"],
+    "PostsController": ["Post"]
+  },
+  "reverse": {
+    "Post": ["Comment", "PostsController"],
+    "Comment": [],
+    "PostsController": []
+  },
+  "file_map": {
+    "app/models/post.rb": "Post",
+    "app/models/comment.rb": "Comment",
+    "app/controllers/posts_controller.rb": "PostsController"
+  },
+  "type_index": {
+    "model": ["Post", "Comment"],
+    "controller": ["PostsController"]
+  },
+  "stats": {
+    "node_count": 3,
+    "edge_count": 2,
+    "types": {
+      "model": 2,
+      "controller": 1
+    }
+  }
+}
