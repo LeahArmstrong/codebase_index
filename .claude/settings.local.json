@@ -1,0 +1,11 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(wc:*)",
+      "Bash(bundle:*)",
+      "Bash(rake:*)",
+      "Bash(git:*)",
+      "Bash(ruby:*)"
+    ]
+  }
+}
