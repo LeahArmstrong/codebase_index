@@ -11,6 +11,7 @@
 | [OPERATIONS.md](OPERATIONS.md) | Production concerns — schema management (migrations, versioning, upgrades), error handling and graceful degradation (circuit breakers, fallback tiers), observability (instrumentation, tracing, structured logging, health checks) |
 | [AGENTIC_STRATEGY.md](AGENTIC_STRATEGY.md) | How AI agents should consume the system — tool-use interface, task-to-strategy mapping, multi-turn patterns, MCP server design, anti-patterns, evaluation queries |
 | [MODEL_EXTRACTION_FIXES.md](MODEL_EXTRACTION_FIXES.md) | Six model extraction fixes (chunking gate, Proc serialization, STI detection, method filtering, callback conditions, token estimation) and their impact on downstream AI consumption |
+| [CONSOLE_SERVER.md](CONSOLE_SERVER.md) | Console MCP server design — architecture, bridge protocol, safety model (5 layers), tool interface (4 tiers), deployment modes (Docker/direct/SSH), phased implementation |
 
 ## Reading Order
 
@@ -20,6 +21,7 @@
 4. **CONTEXT_AND_CHUNKING.md** — Reference when implementing chunking and context assembly.
 5. **OPERATIONS.md** — Reference when deploying to production.
 6. **AGENTIC_STRATEGY.md** — Reference when designing agent integrations.
+7. **CONSOLE_SERVER.md** — Reference when implementing live data access alongside extraction.
 
 ## Status
 
@@ -36,5 +38,6 @@
 | Error Handling | 📋 Designed (see OPERATIONS.md) |
 | Observability | 📋 Designed (see OPERATIONS.md) |
 | Agentic Integration | 📋 Planned (see AGENTIC_STRATEGY.md) |
+| Console MCP Server | 📋 Designed (see CONSOLE_SERVER.md) |
 | Evaluation Harness | 📋 Planned (see PROPOSAL.md) |
 | Cost Modeling | 📋 Documented (see BACKEND_MATRIX.md) |
