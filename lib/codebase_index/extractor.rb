@@ -44,6 +44,24 @@ module CodebaseIndex
       rails_source: Extractors::RailsSourceExtractor
     }.freeze
 
+    # Maps singular unit types (as stored in ExtractedUnit/graph nodes)
+    # to the plural keys used in the EXTRACTORS constant.
+    #
+    # @return [Hash{Symbol => Symbol}]
+    TYPE_TO_EXTRACTOR_KEY = {
+      model: :models,
+      controller: :controllers,
+      service: :services,
+      component: :components,
+      job: :jobs,
+      mailer: :mailers,
+      graphql_type: :graphql,
+      graphql_mutation: :graphql,
+      graphql_resolver: :graphql,
+      graphql_query: :graphql,
+      rails_source: :rails_source
+    }.freeze
+
     attr_reader :output_dir, :dependency_graph
 
     def initialize(output_dir: nil)
@@ -122,6 +140,9 @@ module CodebaseIndex
       if graph_path.exist?
         @dependency_graph = DependencyGraph.from_h(JSON.parse(File.read(graph_path)))
       end
+
+      # Eager load to ensure newly-added classes are discoverable
+      Rails.application.eager_load!
 
       # Compute affected units
       affected_ids = @dependency_graph.affected_by(changed_files)
@@ -449,7 +470,10 @@ module CodebaseIndex
       return unless file_path && File.exist?(file_path)
 
       # Re-extract based on type
-      extractor = EXTRACTORS[type]&.new
+      extractor_key = TYPE_TO_EXTRACTOR_KEY[type]
+      return unless extractor_key
+
+      extractor = EXTRACTORS[extractor_key]&.new
       return unless extractor
 
       unit = case type
@@ -476,6 +500,17 @@ module CodebaseIndex
                  nil
                end
                extractor.extract_component(klass) if klass
+             when :job
+               extractor.extract_job_file(file_path)
+             when :mailer
+               klass = begin
+                 unit_id.constantize
+               rescue StandardError
+                 nil
+               end
+               extractor.extract_mailer(klass) if klass
+             when :graphql_type, :graphql_mutation, :graphql_resolver, :graphql_query
+               extractor.extract_graphql_file(file_path)
              end
 
       if unit
@@ -483,7 +518,7 @@ module CodebaseIndex
         @dependency_graph.register(unit)
 
         # Write updated unit
-        type_dir = @output_dir.join(type.to_s)
+        type_dir = @output_dir.join(extractor_key.to_s)
         file_name = unit.identifier.gsub("::", "__").gsub(/[^a-zA-Z0-9_-]/, "_") + ".json"
 
         File.write(
