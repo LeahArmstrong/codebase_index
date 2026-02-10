@@ -44,7 +44,7 @@ module CodebaseIndex
       @similarity_threshold = 0.7
       @include_framework_sources = true
       @gem_configs = {}
-      @extractors = %i[models controllers services components]
+      @extractors = %i[models controllers services components jobs mailers graphql rails_source]
     end
 
     # Add a gem to be indexed
