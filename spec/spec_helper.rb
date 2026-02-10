@@ -1,6 +1,10 @@
 # frozen_string_literal: true
 
-require "codebase_index"
+require "rspec"
+require "active_support/core_ext/string/inflections"
+require "codebase_index/extracted_unit"
+require "codebase_index/dependency_graph"
+require "codebase_index/graph_analyzer"
 
 RSpec.configure do |config|
   config.expect_with :rspec do |expectations|

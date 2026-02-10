@@ -46,18 +46,25 @@ namespace :codebase_index do
     output_dir = ENV.fetch("CODEBASE_INDEX_OUTPUT", Rails.root.join("tmp/codebase_index"))
 
     # Determine changed files from CI environment or git
+    require "open3"
+
     changed_files = if ENV["CHANGED_FILES"]
       # Explicit list from CI
       ENV["CHANGED_FILES"].split(",").map(&:strip)
     elsif ENV["CI_COMMIT_BEFORE_SHA"]
       # GitLab CI
-      `git diff --name-only #{ENV["CI_COMMIT_BEFORE_SHA"]}..#{ENV["CI_COMMIT_SHA"]}`.lines.map(&:strip)
+      output, = Open3.capture2("git", "diff", "--name-only",
+                               "#{ENV['CI_COMMIT_BEFORE_SHA']}..#{ENV['CI_COMMIT_SHA']}")
+      output.lines.map(&:strip)
     elsif ENV["GITHUB_BASE_REF"]
       # GitHub Actions PR
-      `git diff --name-only origin/#{ENV["GITHUB_BASE_REF"]}...HEAD`.lines.map(&:strip)
+      output, = Open3.capture2("git", "diff", "--name-only",
+                               "origin/#{ENV['GITHUB_BASE_REF']}...HEAD")
+      output.lines.map(&:strip)
     else
       # Default: changes since last commit
-      `git diff --name-only HEAD~1`.lines.map(&:strip)
+      output, = Open3.capture2("git", "diff", "--name-only", "HEAD~1")
+      output.lines.map(&:strip)
     end
 
     # Filter to relevant files

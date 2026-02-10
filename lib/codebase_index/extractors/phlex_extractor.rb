@@ -35,8 +35,6 @@ module CodebaseIndex
       #
       # @return [Array<ExtractedUnit>] List of component units
       def extract_all
-        Rails.application.eager_load!
-
         return [] unless @component_base
 
         @component_base.descendants.map do |component|
@@ -63,7 +61,7 @@ module CodebaseIndex
         unit.dependencies = extract_dependencies(component, unit.source_code)
 
         unit
-      rescue => e
+      rescue StandardError => e
         Rails.logger.error("Failed to extract component #{component.name}: #{e.message}")
         nil
       end
@@ -95,7 +93,7 @@ module CodebaseIndex
           method = component.instance_methods(false).first
           component.instance_method(method).source_location&.first
         end
-      rescue
+      rescue StandardError
         nil
       end
 
@@ -184,7 +182,7 @@ module CodebaseIndex
                        end
           { name: name, type: param_type }
         end
-      rescue
+      rescue StandardError
         []
       end
 

@@ -48,9 +48,12 @@ The extraction layer runs inside a Rails application and produces structured JSO
 | Jobs/Workers | Queue config, retry/concurrency, perform signatures, ActiveJob + Sidekiq |
 | Mailers | Default settings, per-action templates, callbacks |
 | Components | Phlex slots/params, rendered sub-components, Stimulus refs |
+| GraphQL | Object types, input types, enums, unions, interfaces, mutations, resolvers, field metadata, authorization patterns |
 | Framework Source | Version-pinned Rails internals and gem source, importance-rated |
 
-Each unit includes bidirectional dependency edges, git enrichment (change frequency, contributors, recency), semantic chunks for large units, and estimated token counts.
+Each unit includes bidirectional dependency edges, git enrichment (change frequency, contributors, recency), semantic chunks for large units, estimated token counts, and content hashes (`source_hash` on each unit, `content_hash` per chunk) for change detection.
+
+The dependency graph supports PageRank scoring (damping: 0.85, 20 iterations) for quantifying architectural importance, and a `GraphAnalyzer` that identifies structural features: orphans, dead ends, hubs, cycles, and bridges.
 
 ### Retrieval (Proposed)
 
@@ -141,7 +144,7 @@ Query
   ▼
 ┌──────────────────┐
 │ Ranker            │  Re-rank by relevance, recency, importance, diversity
-└──────────────────┘
+└──────────────────┘     (Future: cross-encoder reranking for precision)
   │
   ▼
 ┌──────────────────┐
@@ -173,7 +176,7 @@ Queries are classified along four dimensions:
 - `comprehensive` — Full feature/flow
 
 **Target Type** — What kind of unit?
-- `model`, `controller`, `service`, `job`, `mailer`, `component`, `concern`, `framework`, `schema`, `route`, `unknown`
+- `model`, `controller`, `service`, `job`, `mailer`, `component`, `concern`, `graphql_type`, `graphql_mutation`, `graphql_resolver`, `graphql_query`, `framework`, `schema`, `route`, `unknown`
 
 **Framework Context** — Does this need Rails/gem source?
 - Triggered by patterns like "what options does X support", "how does Rails implement Y", "is Z deprecated"
@@ -185,7 +188,7 @@ Queries are classified along four dimensions:
 | **Vector Search** | Semantic queries, concept lookups | Embed query → cosine similarity against unit embeddings |
 | **Keyword Search** | Exact identifiers, class/method names | Match against indexed identifiers, columns, methods |
 | **Graph Traversal** | Dependency tracing, impact analysis | BFS/DFS from identified unit through dependency graph |
-| **Hybrid** | Most queries | Combine vector + keyword + graph expansion |
+| **Hybrid** | Most queries | Combine vector + keyword + graph expansion (use Reciprocal Rank Fusion for score merging) |
 | **Direct Lookup** | Known identifier, pinpoint queries | Fetch unit by ID |
 
 ### Context Assembly
@@ -531,7 +534,7 @@ CodebaseIndex.configure_with_preset(:self_hosted, db: :mysql)  # MySQL variant
 
 ## Open Questions
 
-1. **Embedding model selection** — Voyage Code 2 vs OpenAI text-embedding-3-small vs code-specific alternatives. Needs benchmarking against Rails code specifically. General-purpose embeddings may miss domain concepts.
+1. **Embedding model selection** — Voyage Code 3 (1024 dimensions, 32K context window) vs OpenAI text-embedding-3-small vs code-specific alternatives. Needs benchmarking against Rails code specifically. General-purpose embeddings may miss domain concepts.
 
 2. **Chunk granularity** — Current semantic chunking (summary/associations/callbacks/validations) works for models. Need to validate this produces better retrieval than alternatives (method-level, block-level, file-level).
 
@@ -546,6 +549,8 @@ CodebaseIndex.configure_with_preset(:self_hosted, db: :mysql)  # MySQL variant
 7. **Multi-language support** — Some Rails apps have significant JavaScript/TypeScript alongside Ruby. Should extraction cover frontend code? Stimulus controllers are already captured via Phlex, but standalone JS modules aren't.
 
 8. **Security** — Extracted data contains source code. Storage backends need appropriate access controls. Self-hosted options may be preferable for security-sensitive codebases. Need to define a security model.
+
+9. **Extraction coverage gaps** — Serializers (ActiveModelSerializers, Blueprinter, Alba) and decorators (Draper) are not yet extracted. View components are Phlex-only; ViewComponent (GitHub) is not covered. These are common patterns in large Rails apps and should be addressed in a future extraction pass.
 
 ---
 

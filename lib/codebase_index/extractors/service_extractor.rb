@@ -68,7 +68,7 @@ module CodebaseIndex
         unit.dependencies = extract_dependencies(source)
 
         unit
-      rescue => e
+      rescue StandardError => e
         Rails.logger.error("Failed to extract service #{file_path}: #{e.message}")
         nil
       end

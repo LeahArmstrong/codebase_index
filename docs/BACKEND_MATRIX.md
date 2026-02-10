@@ -277,15 +277,15 @@ config.vector_store = :sqlite_faiss
 
 ### Voyage Code 3 / Code 2
 
-**Dimensions:** 1024 (code-3) / 1536 (code-2)
-**Max tokens:** 16000 (code-3) / 16000 (code-2)
+**Dimensions:** 1024 (Code 3) / 1536 (Code 2)
+**Max tokens:** 32000 (Code 3) / 16000 (Code 2)
 **Cost:** ~$0.06 per 1M tokens (code-2)
 **Latency:** ~120ms single
 
-**Strengths:** Specifically trained on code. Higher context window means larger units can be embedded without truncation. Benchmarks show strong performance on code retrieval tasks.
+**Strengths:** Specifically trained on code. Code 3's 32K context window means even very large units can be embedded without truncation. Code 3 uses 1024 dimensions (smaller vectors, less storage) while maintaining strong retrieval quality. Benchmarks show strong performance on code retrieval tasks.
 **Weaknesses:** Smaller community than OpenAI. API availability/reliability less battle-tested.
 
-**Best for:** Code-specific retrieval where embedding quality matters. The 16K token window is significant — many extracted units exceed 8K tokens, especially with inlined concerns.
+**Best for:** Code-specific retrieval where embedding quality matters. Code 3's 32K token window is significant — many extracted units exceed 8K tokens, especially with inlined concerns. The lower dimensionality (1024 vs 1536) also reduces vector storage costs.
 
 ### Ollama / Nomic-embed-text (Self-hosted)
 
@@ -309,7 +309,7 @@ config.vector_store = :sqlite_faiss
 |----------|---------------|
 | **Best quality for code** | Voyage Code 3 |
 | **Best general-purpose** | OpenAI text-embedding-3-small |
-| **Best for large units** | Voyage (16K context) |
+| **Best for large units** | Voyage Code 3 (32K context) |
 | **Lowest cost** | Ollama + nomic-embed-text |
 | **No external dependencies** | Ollama + nomic-embed-text |
 | **Maximum quality** | OpenAI text-embedding-3-large |
@@ -521,10 +521,11 @@ Loads from extracted JSON files on startup. All queries run against in-memory ha
 
 ### In-Memory (Default)
 
-Loads `dependency_graph.json` into a Ruby hash structure. BFS traversal with visited set. Suitable for up to ~5000 nodes.
+Loads `dependency_graph.json` into a Ruby hash structure. Supports BFS traversal with visited set, PageRank scoring, and structural analysis via `GraphAnalyzer` (orphan detection, dead-end detection, hub identification, cycle detection, bridge detection). Suitable for up to ~5000 nodes.
 
 **Memory:** ~10MB for 2000 nodes with average 5 edges each.
 **Traversal:** < 1ms for depth-2 BFS.
+**Analysis:** GraphAnalyzer provides `orphans`, `dead_ends`, `hubs(limit:)`, `cycles`, `bridges(limit:, sample_size:)`, and a combined `analyze` method.
 
 ### MySQL 8.0+ (Recursive CTEs)
 
@@ -579,7 +580,7 @@ CREATE INDEX ON codebase_edges (target_id);  -- For reverse traversal
 
 Full graph database. Only needed for cross-repo analysis or very large monoliths where traversal patterns are complex (paths with conditions, weighted shortest path, community detection).
 
-**When to use:** > 50000 nodes, cross-repository tracing, need for graph algorithms beyond BFS.
+**When to use:** > 50000 nodes, cross-repository tracing, need for graph algorithms beyond what GraphAnalyzer provides in-memory. Note that basic graph analytics (betweenness centrality via bridge detection, cycle detection, hub identification, PageRank) are now available in-memory via `GraphAnalyzer` and `DependencyGraph#pagerank`, so Neo4j is only warranted for very large graphs or advanced algorithms like community detection and weighted shortest path.
 
 ---
 
@@ -748,7 +749,7 @@ Different stack combinations have very different cost profiles. This section pro
 
 | Variable | Range | Impact |
 |----------|-------|--------|
-| Codebase size (models + services + controllers) | 50–1000 units | Linear on embedding cost, linear on storage |
+| Codebase size (models + services + controllers + GraphQL types + jobs) | 50–2000+ units | Linear on embedding cost, linear on storage |
 | Chunk multiplier (chunks per unit, avg) | 1.5–4x | Multiplies embedding cost |
 | Embedding dimensions | 256–3072 | Multiplies vector storage |
 | Re-index frequency | Weekly / per-merge / per-commit | Multiplies embedding cost over time |
@@ -766,7 +767,7 @@ Assumptions: average unit produces ~400 tokens of embeddable text. Hierarchical 
 | 500 units | ~1,250 | ~562K | $0.011 | $0.073 | $0.034 | $0 |
 | 1000 units | ~2,500 | ~1.1M | $0.022 | $0.146 | $0.068 | $0 |
 
-A full index of a 300-unit codebase costs less than a penny with OpenAI's small model. Embedding cost is not the bottleneck for any reasonable codebase.
+A full index of a 300-unit codebase costs less than a penny with OpenAI's small model. Target scale is larger: a production Rails app may have ~993 models and 2000+ total units when including controllers, services, jobs, GraphQL types, and mailers. Even at that scale, embedding cost is not the bottleneck.
 
 ### Incremental Re-embedding Cost
 
@@ -779,7 +780,7 @@ With chunk checksumming (only re-embed changed chunks), a typical merge touches 
 | Monthly (200 merges) | ~1.1M | $0.022 | $0.143 | $0.066 |
 | Yearly (2400 merges) | ~13M | $0.26 | $1.69 | $0.78 |
 
-Even with aggressive per-merge re-indexing, the yearly embedding cost for a 300-unit codebase is under $2 with OpenAI's small model.
+Even with aggressive per-merge re-indexing, the yearly embedding cost for a 300-unit codebase is under $2 with OpenAI's small model. At the target scale of 2000+ units, multiply these figures by ~7x — still well under $15/year.
 
 ### Query-Time Embedding Cost
 

@@ -121,6 +121,7 @@ For the full-unit summary embedding:
 | Job/Worker | Single chunk | 100-500 |
 | Mailer | Per-action if > 3 actions, else single | 200-600 |
 | Component | Single chunk | 200-600 |
+| GraphQL type/mutation | Summary + field-group chunks (batches of 10 fields) + arguments chunk | 200-800 each |
 | Framework source | Per-method or per-concept | 200-800 |
 
 ### Embedding Model Context Window Interaction
@@ -131,7 +132,8 @@ Chunk size must stay within the embedding model's context window:
 |----------|-----------|------------------------|
 | OpenAI text-embedding-3-small | 8,191 | ~7,000 (leave room for prefix) |
 | OpenAI text-embedding-3-large | 8,191 | ~7,000 |
-| Voyage Code 2/3 | 16,000 | ~14,000 |
+| Voyage Code 2 | 16,000 | ~14,000 |
+| Voyage Code 3 | 32,000 | ~30,000 |
 | Ollama nomic-embed-text | 8,192 | ~7,000 |
 
 Most extracted chunks will be well under these limits. The exception is large models with many inlined concerns, or framework source files. These should be split at natural boundaries (method definitions, section comments) rather than truncated.
@@ -161,15 +163,17 @@ When a unit changes, what needs re-embedding?
 - Re-embed the full-unit summary for every includer
 - The dependency graph already tracks this — concern → includer edges drive the blast radius
 
-The indexing pipeline should track chunk checksums. Only re-embed chunks whose content actually changed:
+The indexing pipeline tracks chunk checksums to only re-embed chunks whose content actually changed. The extraction layer already implements this: `ExtractedUnit#build_default_chunks` computes a `content_hash` (SHA256) per chunk, and `ExtractedUnit#to_h` includes a `source_hash` for the full unit. The retrieval/embedding layer can compare these hashes against stored values to skip unchanged chunks:
 
 ```ruby
+# content_hash and source_hash are already computed by the extraction layer.
+# The indexing pipeline compares against stored checksums:
 module CodebaseIndex
   class ChunkChecksummer
     def needs_reembedding?(chunk)
-      current_checksum = Digest::SHA256.hexdigest(chunk.prepared_text)
+      # chunk.content_hash is set by ExtractedUnit#build_default_chunks (SHA256)
       stored_checksum = @metadata_store.chunk_checksum(chunk.id)
-      current_checksum != stored_checksum
+      chunk.content_hash != stored_checksum
     end
   end
 end

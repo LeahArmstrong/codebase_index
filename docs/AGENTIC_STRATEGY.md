@@ -112,6 +112,24 @@ tools:
     parameters:
       limit: integer (optional, default 20)
       type: string (optional, filter by unit type)
+
+  - name: codebase_graph_analysis
+    description: >
+      Structural analysis of the dependency graph. Returns orphans
+      (no dependencies or dependents), dead ends (no dependents),
+      hubs (most connections), cycles, and bridges (edges whose
+      removal would disconnect subgraphs).
+    parameters:
+      analysis: string (optional, "orphans" | "dead_ends" | "hubs" | "cycles" | "bridges" | "all", default "all")
+      limit: integer (optional, default 20)
+
+  - name: codebase_pagerank
+    description: >
+      PageRank scores for all units in the dependency graph.
+      Identifies the most structurally important units — those
+      that are most connected and most depended upon.
+    parameters:
+      limit: integer (optional, default 20)
 ```
 
 ---
@@ -307,6 +325,67 @@ Total budget used: ~3500 / 8000
 ```
 
 **Key decision:** Combine graph traversal (structural dependencies) with keyword search (textual references) for complete impact analysis.
+
+---
+
+### Task: Understanding a GraphQL API
+
+**Scenario:** "What data can I fetch through the GraphQL API for orders?"
+
+**Strategy: Type lookup → field expansion → resolver inspection**
+
+```
+1. codebase_search(keywords: ["order"], fields: ["identifier"], filters: { type: ["graphql_type", "graphql_query"] })
+   → Returns: OrderType, OrderConnection, OrdersQuery
+   → Token cost: ~300
+
+2. codebase_lookup("OrderType")
+   → Returns: Full type with fields, field-group chunks, arguments
+   → Agent sees: all exposed fields, their types, resolver methods
+   → Token cost: ~600
+
+3. codebase_dependencies("OrderType", depth: 1)
+   → Returns: Order (model), LineItemType, AccountType — the underlying data sources
+   → Token cost: ~1000
+
+4. codebase_lookup("OrdersQuery")
+   → Returns: Query resolver with arguments, authorization, and data loading
+   → Token cost: ~500
+
+Total budget used: ~2400 / 8000
+Agent can now explain what's available through the GraphQL API for orders.
+```
+
+**Key decisions:**
+- Filter by GraphQL unit types to avoid noise from models/controllers with similar names
+- GraphQL types map to underlying models — use dependency traversal to connect the API layer to the data layer
+- Resolver source shows authorization and data loading patterns
+
+---
+
+### Task: GraphQL Mutation Impact
+
+**Scenario:** "What happens when CreateOrder mutation runs? What side effects does it trigger?"
+
+**Strategy: Mutation lookup → dependency chain → callback inspection**
+
+```
+1. codebase_lookup("CreateOrderMutation")
+   → Returns: Mutation with arguments, return type, resolver body
+   → Token cost: ~600
+
+2. codebase_dependencies("CreateOrderMutation", depth: 1)
+   → Returns: Order, CheckoutService, OrderType — what it creates and calls
+   → Token cost: ~800
+
+3. codebase_lookup("Order")
+   → Check callbacks: after_create hooks, mailer triggers, job enqueues
+   → Token cost: ~1500
+
+Total budget used: ~2900 / 8000
+```
+
+**Key decision:** GraphQL mutations are thin wrappers — the real logic lives in services and model callbacks. Follow the dependency chain to find side effects.
 
 ---
 
@@ -518,6 +597,27 @@ For agent frameworks that support MCP (Model Context Protocol), CodebaseIndex ex
           "detail": { "type": "string", "enum": ["summary", "full"] }
         }
       }
+    },
+    {
+      "name": "graph_analysis",
+      "description": "Structural analysis: orphans, dead ends, hubs, cycles, bridges",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "analysis": { "type": "string", "enum": ["orphans", "dead_ends", "hubs", "cycles", "bridges", "all"], "default": "all" },
+          "limit": { "type": "integer", "default": 20 }
+        }
+      }
+    },
+    {
+      "name": "pagerank",
+      "description": "PageRank scores for dependency graph nodes",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "limit": { "type": "integer", "default": 20 }
+        }
+      }
     }
   ],
   "resources": [
@@ -529,7 +629,7 @@ For agent frameworks that support MCP (Model Context Protocol), CodebaseIndex ex
     {
       "uri": "codebase://graph",
       "name": "Dependency Graph",
-      "description": "Full dependency graph as adjacency list"
+      "description": "Full dependency graph as adjacency list, with PageRank scores and structural analysis (orphans, dead ends, hubs, cycles, bridges)"
     }
   ]
 }
@@ -675,8 +775,15 @@ These queries can be used to evaluate retrieval quality across different task ty
 23. "What are the most frequently changed files?"
 24. "Which services have the most dependencies?"
 
+### GraphQL Queries
+25. "What fields are exposed on the OrderType?"
+26. "How does the CreateOrder mutation work end-to-end?"
+27. "What GraphQL types depend on the Account model?"
+28. "Which mutations trigger background jobs?"
+29. "What authorization checks exist in the GraphQL layer?"
+
 ### Orientation Queries
-25. "Give me an overview of this codebase"
-26. "What are the key domain models?"
-27. "What external services does this app integrate with?"
-28. "What's the testing strategy?"
+30. "Give me an overview of this codebase"
+31. "What are the key domain models?"
+32. "What external services does this app integrate with?"
+33. "What's the testing strategy?"

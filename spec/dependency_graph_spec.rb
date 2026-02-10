@@ -1,0 +1,190 @@
+# frozen_string_literal: true
+
+require "spec_helper"
+require "json"
+
+RSpec.describe CodebaseIndex::DependencyGraph do
+  let(:graph) { described_class.new }
+
+  # Helper to create a minimal ExtractedUnit-like object
+  def make_unit(type:, identifier:, file_path: nil, dependencies: [])
+    unit = CodebaseIndex::ExtractedUnit.new(
+      type: type,
+      identifier: identifier,
+      file_path: file_path || "/app/#{identifier.underscore}.rb"
+    )
+    unit.dependencies = dependencies
+    unit
+  end
+
+  describe "#register" do
+    it "adds a node to the graph" do
+      graph.register(make_unit(type: :model, identifier: "User"))
+
+      expect(graph.units_of_type(:model)).to include("User")
+    end
+
+    it "builds reverse edges" do
+      user_unit = make_unit(type: :model, identifier: "User")
+      order_unit = make_unit(
+        type: :model,
+        identifier: "Order",
+        dependencies: [{ type: :model, target: "User" }]
+      )
+
+      graph.register(user_unit)
+      graph.register(order_unit)
+
+      expect(graph.dependents_of("User")).to include("Order")
+      expect(graph.dependencies_of("Order")).to include("User")
+    end
+  end
+
+  describe "#affected_by" do
+    before do
+      graph.register(make_unit(type: :model, identifier: "User", file_path: "app/models/user.rb"))
+      graph.register(make_unit(
+        type: :service, identifier: "UserService",
+        file_path: "app/services/user_service.rb",
+        dependencies: [{ type: :model, target: "User" }]
+      ))
+      graph.register(make_unit(
+        type: :controller, identifier: "UsersController",
+        file_path: "app/controllers/users_controller.rb",
+        dependencies: [{ type: :service, target: "UserService" }]
+      ))
+    end
+
+    it "returns directly changed units" do
+      affected = graph.affected_by(["app/models/user.rb"])
+      expect(affected).to include("User")
+    end
+
+    it "returns transitively affected units" do
+      affected = graph.affected_by(["app/models/user.rb"])
+      expect(affected).to include("UserService")
+      expect(affected).to include("UsersController")
+    end
+
+    it "returns empty for unrelated files" do
+      affected = graph.affected_by(["app/models/product.rb"])
+      expect(affected).to be_empty
+    end
+
+    it "respects max_depth" do
+      affected = graph.affected_by(["app/models/user.rb"], max_depth: 1)
+      expect(affected).to include("User")
+      expect(affected).to include("UserService")
+      expect(affected).not_to include("UsersController")
+    end
+  end
+
+  describe "#path_between" do
+    before do
+      graph.register(make_unit(type: :model, identifier: "A",
+        dependencies: [{ type: :model, target: "B" }]))
+      graph.register(make_unit(type: :model, identifier: "B",
+        dependencies: [{ type: :model, target: "C" }]))
+      graph.register(make_unit(type: :model, identifier: "C"))
+      graph.register(make_unit(type: :model, identifier: "D"))
+    end
+
+    it "finds a path when one exists" do
+      path = graph.path_between("A", "C")
+      expect(path).to eq(%w[A B C])
+    end
+
+    it "returns nil when no path exists" do
+      expect(graph.path_between("A", "D")).to be_nil
+    end
+
+    it "returns single-element path for same node" do
+      expect(graph.path_between("A", "A")).to eq(["A"])
+    end
+  end
+
+  describe "#pagerank" do
+    it "returns empty hash for empty graph" do
+      expect(graph.pagerank).to eq({})
+    end
+
+    it "assigns higher scores to highly-depended-upon nodes" do
+      # User is depended upon by Order, UserService, and UsersController
+      graph.register(make_unit(type: :model, identifier: "User"))
+      graph.register(make_unit(type: :model, identifier: "Order",
+        dependencies: [{ type: :model, target: "User" }]))
+      graph.register(make_unit(type: :service, identifier: "UserService",
+        dependencies: [{ type: :model, target: "User" }]))
+      graph.register(make_unit(type: :controller, identifier: "UsersController",
+        dependencies: [{ type: :model, target: "User" }]))
+      graph.register(make_unit(type: :model, identifier: "Product"))
+
+      scores = graph.pagerank
+      expect(scores["User"]).to be > scores["Product"]
+    end
+
+    it "scores sum approximately to 1.0" do
+      graph.register(make_unit(type: :model, identifier: "A",
+        dependencies: [{ type: :model, target: "B" }]))
+      graph.register(make_unit(type: :model, identifier: "B",
+        dependencies: [{ type: :model, target: "C" }]))
+      graph.register(make_unit(type: :model, identifier: "C"))
+
+      total = graph.pagerank.values.sum
+      expect(total).to be_within(0.01).of(1.0)
+    end
+  end
+
+  describe "JSON round-trip" do
+    before do
+      graph.register(make_unit(type: :model, identifier: "User",
+        file_path: "app/models/user.rb"))
+      graph.register(make_unit(type: :service, identifier: "UserService",
+        file_path: "app/services/user_service.rb",
+        dependencies: [{ type: :model, target: "User" }]))
+    end
+
+    it "preserves graph structure through JSON serialization" do
+      json = JSON.generate(graph.to_h)
+      restored = described_class.from_h(JSON.parse(json))
+
+      expect(restored.dependencies_of("UserService")).to include("User")
+      expect(restored.dependents_of("User")).to include("UserService")
+      expect(restored.units_of_type(:model)).to include("User")
+      expect(restored.units_of_type(:service)).to include("UserService")
+    end
+
+    it "normalizes node value keys to symbols after JSON round-trip" do
+      json = JSON.generate(graph.to_h)
+      restored = described_class.from_h(JSON.parse(json))
+
+      node = restored.to_h[:nodes]["User"]
+      expect(node[:type]).to eq(:model)
+      expect(node[:file_path]).to eq("app/models/user.rb")
+    end
+
+    it "normalizes type_index keys to symbols after JSON round-trip" do
+      json = JSON.generate(graph.to_h)
+      restored = described_class.from_h(JSON.parse(json))
+
+      expect(restored.units_of_type(:model)).to include("User")
+      expect(restored.units_of_type(:service)).to include("UserService")
+    end
+  end
+
+  describe "#subgraph_for_types" do
+    before do
+      graph.register(make_unit(type: :model, identifier: "User"))
+      graph.register(make_unit(type: :service, identifier: "UserService",
+        dependencies: [{ type: :model, target: "User" }]))
+      graph.register(make_unit(type: :controller, identifier: "UsersController",
+        dependencies: [{ type: :service, target: "UserService" }]))
+    end
+
+    it "filters to only specified types" do
+      sub = graph.subgraph_for_types([:model, :service])
+      expect(sub[:nodes].keys).to contain_exactly("User", "UserService")
+      expect(sub[:edges]["UserService"]).to include("User")
+    end
+  end
+end

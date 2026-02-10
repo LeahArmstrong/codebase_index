@@ -202,7 +202,7 @@ module CodebaseIndex
 
       def gem_version(gem_name)
         Gem::Specification.find_by_name(gem_name).version.to_s
-      rescue
+      rescue StandardError
         "unknown"
       end
 
@@ -244,7 +244,7 @@ module CodebaseIndex
         }
 
         unit
-      rescue => e
+      rescue StandardError => e
         Rails.logger.error("Failed to extract Rails source #{file_path}: #{e.message}")
         nil
       end
@@ -278,7 +278,7 @@ module CodebaseIndex
         }
 
         unit
-      rescue => e
+      rescue StandardError => e
         Rails.logger.error("Failed to extract gem source #{file_path}: #{e.message}")
         nil
       end

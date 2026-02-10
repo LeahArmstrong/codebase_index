@@ -24,7 +24,7 @@
 
 | Layer | Status |
 |-------|--------|
-| Extraction | ✅ Complete (7 extractors, dependency graph, rake tasks) |
+| Extraction | ✅ Complete (8 extractors, dependency graph with PageRank, GraphAnalyzer, rake tasks) |
 | Storage Interfaces | 📋 Designed (see RETRIEVAL_ARCHITECTURE.md) |
 | Embedding Pipeline | 📋 Designed (see RETRIEVAL_ARCHITECTURE.md) |
 | Chunking Strategy | 📋 Designed (see CONTEXT_AND_CHUNKING.md) |
