@@ -80,8 +80,13 @@ module CodebaseIndex
     def extract_all
       setup_output_directory
 
-      # Eager load once — all extractors need loaded classes for introspection
-      Rails.application.eager_load!
+      # Eager load once — all extractors need loaded classes for introspection.
+      # Rescue NameError for files referencing gems that aren't installed.
+      begin
+        Rails.application.eager_load!
+      rescue NameError => e
+        Rails.logger.warn "[CodebaseIndex] eager_load! skipped some files: #{e.message}"
+      end
 
       # Phase 1: Extract all units
       EXTRACTORS.each do |type, extractor_class|
@@ -141,11 +146,22 @@ module CodebaseIndex
         @dependency_graph = DependencyGraph.from_h(JSON.parse(File.read(graph_path)))
       end
 
-      # Eager load to ensure newly-added classes are discoverable
-      Rails.application.eager_load!
+      # Eager load to ensure newly-added classes are discoverable.
+      # Rescue NameError for files referencing gems that aren't installed
+      # (e.g., app/graphql/ without the graphql gem).
+      begin
+        Rails.application.eager_load!
+      rescue NameError => e
+        Rails.logger.warn "[CodebaseIndex] eager_load! skipped some files: #{e.message}"
+      end
+
+      # Normalize relative paths (from git diff) to absolute (as stored in file_map)
+      absolute_files = changed_files.map do |f|
+        Pathname.new(f).absolute? ? f : Rails.root.join(f).to_s
+      end
 
       # Compute affected units
-      affected_ids = @dependency_graph.affected_by(changed_files)
+      affected_ids = @dependency_graph.affected_by(absolute_files)
       Rails.logger.info "[CodebaseIndex] #{changed_files.size} changed files affect #{affected_ids.size} units"
 
       # Re-extract affected units
