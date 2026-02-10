@@ -59,7 +59,8 @@ module CodebaseIndex
 
         unit
       rescue StandardError => e
-        Rails.logger.error("Failed to extract controller #{controller.name}: #{e.message}")
+        Rails.logger.error("[CodebaseIndex] Failed to extract controller #{controller.name}: #{e.class}: #{e.message}")
+        Rails.logger.error("[CodebaseIndex]   #{e.backtrace&.first(5)&.join("\n  ")}")
         nil
       end
 
