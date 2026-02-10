@@ -52,6 +52,28 @@ RSpec.describe CodebaseIndex::MCP::Server do
       response = call_tool(server, 'lookup', identifier: 'NonExistent')
       expect(response_text(response)).to include('not found')
     end
+
+    it 'excludes source_code when include_source is false' do
+      response = call_tool(server, 'lookup', identifier: 'Post', include_source: false)
+      data = parse_response(response)
+      expect(data['identifier']).to eq('Post')
+      expect(data).not_to have_key('source_code')
+      expect(data['metadata']).to be_a(Hash)
+    end
+
+    it 'returns only selected sections plus always-included keys' do
+      response = call_tool(server, 'lookup', identifier: 'Post', sections: ['metadata'])
+      data = parse_response(response)
+      expect(data.keys).to contain_exactly('type', 'identifier', 'file_path', 'namespace', 'metadata')
+    end
+
+    it 'returns full data by default for backward compatibility' do
+      response = call_tool(server, 'lookup', identifier: 'Post')
+      data = parse_response(response)
+      expect(data).to have_key('source_code')
+      expect(data).to have_key('metadata')
+      expect(data).to have_key('dependencies')
+    end
   end
 
   describe 'tool: search' do
@@ -90,6 +112,14 @@ RSpec.describe CodebaseIndex::MCP::Server do
       response = call_tool(server, 'dependencies', identifier: 'NonExistent')
       data = parse_response(response)
       expect(data['nodes']).to be_empty
+      expect(data['found']).to be false
+    end
+
+    it 'includes message for unknown identifier' do
+      response = call_tool(server, 'dependencies', identifier: 'NonExistent')
+      data = parse_response(response)
+      expect(data['found']).to be false
+      expect(data['message']).to include('not found in the index')
     end
   end
 
@@ -99,6 +129,13 @@ RSpec.describe CodebaseIndex::MCP::Server do
       data = parse_response(response)
       expect(data['root']).to eq('Post')
       expect(data['nodes']['Post']['deps']).to include('Comment', 'PostsController')
+    end
+
+    it 'returns found: true with no message for known identifier' do
+      response = call_tool(server, 'dependents', identifier: 'Post')
+      data = parse_response(response)
+      expect(data['found']).to be true
+      expect(data).not_to have_key('message')
     end
   end
 
@@ -134,6 +171,27 @@ RSpec.describe CodebaseIndex::MCP::Server do
       data = parse_response(response)
       expect(data).to have_key('orphans')
       expect(data['orphans']).to include('PostsController')
+    end
+
+    it 'truncates each section when analysis is all with limit' do
+      response = call_tool(server, 'graph_analysis', analysis: 'all', limit: 1)
+      data = parse_response(response)
+      expect(data['hubs'].size).to eq(1)
+      expect(data['hubs_total']).to eq(3)
+      expect(data['hubs_truncated']).to be true
+      # Sections with 1 or fewer items should not have truncation metadata
+      expect(data['orphans'].size).to eq(1)
+      expect(data).not_to have_key('orphans_truncated')
+    end
+
+    it 'truncates nested dependents in hub entries' do
+      response = call_tool(server, 'graph_analysis', analysis: 'hubs', limit: 1)
+      data = parse_response(response)
+      hub = data['hubs'].first
+      expect(hub['identifier']).to eq('Post')
+      expect(hub['dependents'].size).to eq(1)
+      expect(hub['dependents_truncated']).to be true
+      expect(hub['dependents_total']).to eq(2)
     end
   end
 

@@ -183,6 +183,16 @@ RSpec.describe CodebaseIndex::MCP::IndexReader do
       result = reader.traverse_dependencies('NonExistent', depth: 1)
       expect(result[:nodes]).to be_empty
     end
+
+    it 'returns found: false for unknown identifier' do
+      result = reader.traverse_dependencies('NonExistent', depth: 1)
+      expect(result[:found]).to be false
+    end
+
+    it 'returns found: true for known identifier' do
+      result = reader.traverse_dependencies('Comment', depth: 1)
+      expect(result[:found]).to be true
+    end
   end
 
   describe '#traverse_dependents' do
@@ -195,6 +205,11 @@ RSpec.describe CodebaseIndex::MCP::IndexReader do
     it 'returns empty deps for an orphan node' do
       result = reader.traverse_dependents('PostsController', depth: 1)
       expect(result[:nodes]['PostsController'][:deps]).to eq([])
+    end
+
+    it 'returns found: true for known identifier' do
+      result = reader.traverse_dependents('Post', depth: 1)
+      expect(result[:found]).to be true
     end
   end
 

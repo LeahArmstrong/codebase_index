@@ -39,6 +39,7 @@ module CodebaseIndex
         ActiveRecord::Base.descendants
                           .reject(&:abstract_class?)
                           .reject { |m| m.name.nil? } # Skip anonymous classes
+                          .reject { |m| habtm_join_model?(m) }
                           .map { |model| extract_model(model) }
                           .compact
       end
@@ -82,20 +83,39 @@ module CodebaseIndex
         app_root = Rails.root.to_s
         convention_path = Rails.root.join("app/models/#{model.name.underscore}.rb").to_s
 
-        # Try instance methods defined directly on this model first
+        # Tier 1: Instance methods defined directly on this model
         model.instance_methods(false).each do |method_name|
           loc = model.instance_method(method_name).source_location&.first
           return loc if loc&.start_with?(app_root)
         end
 
-        # Fall back to convention if the file exists
+        # Tier 2: Class/singleton methods (catches models with only scopes)
+        model.methods(false).each do |method_name|
+          loc = model.method(method_name).source_location&.first
+          return loc if loc&.start_with?(app_root)
+        end
+
+        # Tier 3: Convention path if file exists
         return convention_path if File.exist?(convention_path)
 
-        # Last resort: any method's source location (even inherited)
-        loc = model.instance_method(:initialize).source_location&.first
-        loc&.start_with?(app_root) ? loc : convention_path
+        # Tier 4: const_source_location (Ruby 3.0+)
+        if Object.respond_to?(:const_source_location)
+          loc = Object.const_source_location(model.name)&.first
+          return loc if loc&.start_with?(app_root)
+        end
+
+        # Tier 5: Always return convention path — never a gem path
+        convention_path
       rescue StandardError
         convention_path
+      end
+
+      # Detect Rails-generated HABTM join models (e.g., Product::HABTB_Categories)
+      #
+      # @param model [Class] The ActiveRecord model class
+      # @return [Boolean] true if the model is an auto-generated HABTM join class
+      def habtm_join_model?(model)
+        model.name.demodulize.start_with?('HABTM_')
       end
 
       # Build composite source with schema header and inlined concerns

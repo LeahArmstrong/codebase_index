@@ -250,7 +250,7 @@ module CodebaseIndex
         graph_data = raw_graph_data
         nodes_data = graph_data['nodes'] || {}
 
-        return { root: identifier, nodes: {} } unless nodes_data.key?(identifier)
+        return { root: identifier, found: false, nodes: {} } unless nodes_data.key?(identifier)
 
         type_set = types ? types.to_set : nil
         visited = Set.new([identifier])
@@ -293,7 +293,7 @@ module CodebaseIndex
           end
         end
 
-        { root: identifier, nodes: result_nodes }
+        { root: identifier, found: true, nodes: result_nodes }
       end
     end
   end
