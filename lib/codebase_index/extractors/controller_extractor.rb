@@ -49,10 +49,13 @@ module CodebaseIndex
           file_path: source_file_for(controller)
         )
 
+        source_path = unit.file_path
+        source = source_path && File.exist?(source_path) ? File.read(source_path) : ""
+
         unit.namespace = extract_namespace(controller)
-        unit.source_code = build_composite_source(controller)
-        unit.metadata = extract_metadata(controller)
-        unit.dependencies = extract_dependencies(controller)
+        unit.source_code = build_composite_source(controller, source)
+        unit.metadata = extract_metadata(controller, source)
+        unit.dependencies = extract_dependencies(controller, source)
 
         # Controllers benefit from per-action chunks
         unit.chunks = build_action_chunks(controller, unit)
@@ -120,11 +123,13 @@ module CodebaseIndex
       end
 
       # Build composite source with routes and filters as headers
-      def build_composite_source(controller)
-        source_path = source_file_for(controller)
-        return "" unless source_path && File.exist?(source_path)
+      def build_composite_source(controller, source = nil)
+        if source.nil?
+          source_path = source_file_for(controller)
+          return "" unless source_path && File.exist?(source_path)
 
-        source = File.read(source_path)
+          source = File.read(source_path)
+        end
 
         # Prepend route information
         routes_comment = build_routes_comment(controller)
@@ -265,7 +270,7 @@ module CodebaseIndex
       # ──────────────────────────────────────────────────────────────────────
 
       # Extract comprehensive metadata
-      def extract_metadata(controller)
+      def extract_metadata(controller, source = nil)
         actions = controller.action_methods.to_a
 
         {
@@ -287,14 +292,14 @@ module CodebaseIndex
           included_concerns: extract_included_concerns(controller),
 
           # Response formats
-          responds_to: extract_respond_formats(controller),
+          responds_to: extract_respond_formats(controller, source),
 
           # Metrics
           action_count: actions.size,
           filter_count: controller._process_action_callbacks.count,
 
           # Strong parameters if definable
-          permitted_params: extract_permitted_params(controller)
+          permitted_params: extract_permitted_params(controller, source)
         }
       end
 
@@ -304,11 +309,14 @@ module CodebaseIndex
                   .map(&:name)
       end
 
-      def extract_respond_formats(controller)
-        source_path = source_file_for(controller)
-        return [] unless source_path && File.exist?(source_path)
+      def extract_respond_formats(controller, source = nil)
+        if source.nil?
+          source_path = source_file_for(controller)
+          return [] unless source_path && File.exist?(source_path)
 
-        source = File.read(source_path)
+          source = File.read(source_path)
+        end
+
         formats = []
 
         formats << :html if source.include?("respond_to do") || !source.include?("respond_to")
@@ -319,11 +327,14 @@ module CodebaseIndex
         formats.uniq
       end
 
-      def extract_permitted_params(controller)
-        source_path = source_file_for(controller)
-        return {} unless source_path && File.exist?(source_path)
+      def extract_permitted_params(controller, source = nil)
+        if source.nil?
+          source_path = source_file_for(controller)
+          return {} unless source_path && File.exist?(source_path)
 
-        source = File.read(source_path)
+          source = File.read(source_path)
+        end
+
         params = {}
 
         # Match params.require(:x).permit(...) patterns
@@ -341,44 +352,45 @@ module CodebaseIndex
       # Dependency Extraction
       # ──────────────────────────────────────────────────────────────────────
 
-      def extract_dependencies(controller)
+      def extract_dependencies(controller, source = nil)
         deps = []
-        source_path = source_file_for(controller)
 
-        if source_path && File.exist?(source_path)
-          source = File.read(source_path)
+        if source.nil?
+          source_path = source_file_for(controller)
+          if source_path && File.exist?(source_path)
+            source = File.read(source_path)
+          end
+        end
 
-          # Model references
-          ActiveRecord::Base.descendants.each do |model|
-            next unless model.name
-            if source.match?(/\b#{model.name}\b/)
-              deps << { type: :model, target: model.name }
-            end
+        if source
+          # Model references (using precomputed regex)
+          source.scan(ModelNameCache.model_names_regex).uniq.each do |model_name|
+            deps << { type: :model, target: model_name, via: :code_reference }
           end
 
           # Service references
           source.scan(/(\w+Service)(?:\.|::new)/).flatten.uniq.each do |service|
-            deps << { type: :service, target: service }
+            deps << { type: :service, target: service, via: :code_reference }
           end
 
           # Phlex component references
           source.scan(/render\s+(\w+(?:::\w+)*Component)/).flatten.uniq.each do |component|
-            deps << { type: :component, target: component }
+            deps << { type: :component, target: component, via: :render }
           end
 
           # Other view renders
           source.scan(/render\s+["'](\w+\/\w+)["']/).flatten.uniq.each do |template|
-            deps << { type: :view, target: template }
+            deps << { type: :view, target: template, via: :render }
           end
 
           # Mailers
           source.scan(/(\w+Mailer)\./).flatten.uniq.each do |mailer|
-            deps << { type: :mailer, target: mailer }
+            deps << { type: :mailer, target: mailer, via: :code_reference }
           end
 
           # Jobs
           source.scan(/(\w+Job)\.perform/).flatten.uniq.each do |job|
-            deps << { type: :job, target: job }
+            deps << { type: :job, target: job, via: :code_reference }
           end
         end
 

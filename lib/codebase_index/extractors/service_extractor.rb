@@ -276,49 +276,44 @@ module CodebaseIndex
       def extract_dependencies(source)
         deps = []
 
-        # Model references
-        if defined?(ActiveRecord::Base)
-          ActiveRecord::Base.descendants.each do |model|
-            next unless model.name
-            if source.match?(/\b#{model.name}\b/)
-              deps << { type: :model, target: model.name }
-            end
-          end
+        # Model references (using precomputed regex)
+        source.scan(ModelNameCache.model_names_regex).uniq.each do |model_name|
+          deps << { type: :model, target: model_name, via: :code_reference }
         end
 
         # Other services
         source.scan(/(\w+Service)(?:\.|::new|\.call|\.perform)/).flatten.uniq.each do |service|
-          deps << { type: :service, target: service }
+          deps << { type: :service, target: service, via: :code_reference }
         end
 
         # Interactors
         source.scan(/(\w+Interactor)(?:\.|::)/).flatten.uniq.each do |interactor|
-          deps << { type: :interactor, target: interactor }
+          deps << { type: :interactor, target: interactor, via: :code_reference }
         end
 
         # Jobs
         source.scan(/(\w+Job)\.perform/).flatten.uniq.each do |job|
-          deps << { type: :job, target: job }
+          deps << { type: :job, target: job, via: :code_reference }
         end
 
         # Mailers
         source.scan(/(\w+Mailer)\./).flatten.uniq.each do |mailer|
-          deps << { type: :mailer, target: mailer }
+          deps << { type: :mailer, target: mailer, via: :code_reference }
         end
 
         # External API clients
         source.scan(/(\w+Client)(?:\.|::new)/).flatten.uniq.each do |client|
-          deps << { type: :api_client, target: client }
+          deps << { type: :api_client, target: client, via: :code_reference }
         end
 
         # HTTP calls
         if source.match?(/HTTParty|Faraday|RestClient|Net::HTTP/)
-          deps << { type: :external, target: :http_api }
+          deps << { type: :external, target: :http_api, via: :code_reference }
         end
 
         # Redis
         if source.match?(/Redis\.current|REDIS|Sidekiq\.redis/)
-          deps << { type: :infrastructure, target: :redis }
+          deps << { type: :infrastructure, target: :redis, via: :code_reference }
         end
 
         deps.uniq { |d| [d[:type], d[:target]] }

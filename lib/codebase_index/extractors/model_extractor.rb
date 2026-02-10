@@ -46,10 +46,13 @@ module CodebaseIndex
           file_path: source_file_for(model)
         )
 
+        source_path = unit.file_path
+        source = source_path && File.exist?(source_path) ? File.read(source_path) : nil
+
         unit.namespace = model.module_parent.name unless model.module_parent == Object
-        unit.source_code = build_composite_source(model)
-        unit.metadata = extract_metadata(model)
-        unit.dependencies = extract_dependencies(model)
+        unit.source_code = build_composite_source(model, source)
+        unit.metadata = extract_metadata(model, source)
+        unit.dependencies = extract_dependencies(model, source)
 
         # Chunk large models for better retrieval precision
         unit.chunks = build_chunks(unit) if unit.needs_chunking?
@@ -72,14 +75,14 @@ module CodebaseIndex
       end
 
       # Build composite source with schema header and inlined concerns
-      def build_composite_source(model)
+      def build_composite_source(model, source = nil)
         parts = []
 
         # Schema information as a header comment
         parts << build_schema_comment(model)
 
         # Main model source with concerns inlined
-        parts << build_model_source_with_concerns(model)
+        parts << build_model_source_with_concerns(model, source)
 
         parts.compact.join("\n\n")
       end
@@ -140,11 +143,13 @@ module CodebaseIndex
       end
 
       # Read model source and inline all included concerns
-      def build_model_source_with_concerns(model)
-        source_path = source_file_for(model)
-        return "" unless source_path && File.exist?(source_path)
+      def build_model_source_with_concerns(model, source = nil)
+        if source.nil?
+          source_path = source_file_for(model)
+          return "" unless source_path && File.exist?(source_path)
 
-        source = File.read(source_path)
+          source = File.read(source_path)
+        end
 
         # Find all included concerns and inline them
         included_modules = extract_included_modules(model)
@@ -221,7 +226,7 @@ module CodebaseIndex
       # ──────────────────────────────────────────────────────────────────────
 
       # Extract comprehensive metadata for retrieval and filtering
-      def extract_metadata(model)
+      def extract_metadata(model, source = nil)
         {
           # Core identifiers
           table_name: model.table_name,
@@ -231,7 +236,7 @@ module CodebaseIndex
           associations: extract_associations(model),
           validations: extract_validations(model),
           callbacks: extract_callbacks(model),
-          scopes: extract_scopes(model),
+          scopes: extract_scopes(model, source),
           enums: extract_enums(model),
 
           # API surface
@@ -244,7 +249,7 @@ module CodebaseIndex
           parent_class: model.superclass.name,
 
           # Metrics for retrieval ranking
-          loc: count_loc(model),
+          loc: count_loc(model, source),
           callback_count: callback_count(model),
           association_count: model.reflect_on_all_associations.size,
           validation_count: model._validators.values.flatten.size,
@@ -335,11 +340,14 @@ module CodebaseIndex
       end
 
       # Extract scopes with their source if available
-      def extract_scopes(model)
-        source_path = source_file_for(model)
-        return [] unless source_path && File.exist?(source_path)
+      def extract_scopes(model, source = nil)
+        if source.nil?
+          source_path = source_file_for(model)
+          return [] unless source_path && File.exist?(source_path)
 
-        source = File.read(source_path)
+          source = File.read(source_path)
+        end
+
         scopes = []
 
         # Match scope definitions
@@ -361,7 +369,7 @@ module CodebaseIndex
       # ──────────────────────────────────────────────────────────────────────
 
       # Extract what this model depends on
-      def extract_dependencies(model)
+      def extract_dependencies(model, source = nil)
         deps = []
 
         # Associations point to other models
@@ -370,10 +378,14 @@ module CodebaseIndex
         end
 
         # Parse source for service/mailer/job references
-        source_path = source_file_for(model)
-        if source_path && File.exist?(source_path)
-          source = File.read(source_path)
+        if source.nil?
+          source_path = source_file_for(model)
+          if source_path && File.exist?(source_path)
+            source = File.read(source_path)
+          end
+        end
 
+        if source
           # Service objects
           source.scan(/(\w+Service)(?:\.|::)/).flatten.uniq.each do |service|
             deps << { type: :service, target: service, via: :code_reference }
@@ -390,12 +402,10 @@ module CodebaseIndex
           end
 
           # Other models (direct references in code, not already captured via association)
-          ActiveRecord::Base.descendants.each do |other_model|
-            next if other_model == model || other_model.name.nil?
-            if source.match?(/\b#{other_model.name}\b(?!.*#)/) # Avoid comments
-              unless deps.any? { |d| d[:target] == other_model.name }
-                deps << { type: :model, target: other_model.name, via: :code_reference }
-              end
+          source.scan(ModelNameCache.model_names_regex).uniq.each do |model_name|
+            next if model_name == model.name
+            unless deps.any? { |d| d[:target] == model_name }
+              deps << { type: :model, target: model_name, via: :code_reference }
             end
           end
         end
@@ -546,10 +556,15 @@ module CodebaseIndex
         end
       end
 
-      def count_loc(model)
-        path = source_file_for(model)
-        return 0 unless path && File.exist?(path)
-        File.readlines(path).count { |l| l.strip.present? && !l.strip.start_with?("#") }
+      def count_loc(model, source = nil)
+        if source
+          source.lines.count { |l| l.strip.present? && !l.strip.start_with?("#") }
+        else
+          path = source_file_for(model)
+          return 0 unless path && File.exist?(path)
+
+          File.readlines(path).count { |l| l.strip.present? && !l.strip.start_with?("#") }
+        end
       end
     end
   end
