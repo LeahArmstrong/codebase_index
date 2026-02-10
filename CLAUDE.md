@@ -67,8 +67,10 @@ docs/                              # Planning & design documents (see docs/READM
 
 ## Testing
 
-- RSpec with `rubocop-rspec` enforcement — 86 specs across `extracted_unit_spec.rb`, `dependency_graph_spec.rb`, `graph_analyzer_spec.rb`, `extractor_spec.rb`, `model_name_cache_spec.rb`
-- Test extractors against fixture Rails apps (small apps with known structure)
+**Two test suites** — the gem has unit specs with mocks, and a separate Rails app has integration specs that run real extractions.
+
+- **Gem unit specs** (`spec/`): RSpec with `rubocop-rspec` enforcement. Tests core value objects, graph analysis, ModelNameCache, json_serialize, and extractor orchestration using mocks/stubs. No Rails boot required.
+- **Integration specs** (`~/work/host-app/spec/integration/`): A minimal Rails 8.1 app with Post, Comment models, controllers, jobs, and a mailer. Tests run real extractions and verify output structure, dependencies, incremental extraction, git metadata, and configuration behavior. Requires `cd ~/work/host-app && bundle exec rspec`.
 - Every extractor needs tests for: happy path extraction, edge cases (empty files, namespaced classes, STI), concern inlining, dependency detection
 - Test `ExtractedUnit#to_h` serialization round-trips
 - Test `DependencyGraph` for cycle detection, bidirectional edge resolution, and PageRank computation
@@ -85,6 +87,7 @@ Key references by topic:
 - Schema management, error handling, observability → `docs/OPERATIONS.md`
 - Agent/MCP integration → `docs/AGENTIC_STRATEGY.md`
 - Cost analysis → `docs/BACKEND_MATRIX.md` (bottom section)
+- Optimization backlog → `docs/OPTIMIZATION_BACKLOG.md` — prioritized list of performance, correctness, and coverage improvements. Check resolved status before starting work on an item.
 
 ## Gotchas
 
