@@ -74,6 +74,14 @@ RSpec.describe CodebaseIndex::MCP::Server do
       expect(data).to have_key('metadata')
       expect(data).to have_key('dependencies')
     end
+
+    it 'treats empty sections array as no filtering' do
+      response = call_tool(server, 'lookup', identifier: 'Post', sections: [])
+      data = parse_response(response)
+      expect(data).to have_key('source_code')
+      expect(data).to have_key('metadata')
+      expect(data).to have_key('dependencies')
+    end
   end
 
   describe 'tool: search' do
