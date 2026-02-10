@@ -65,7 +65,7 @@ module CodebaseIndex
     # @return [Integer] Estimated token count
     def estimated_tokens
       return 0 unless source_code
-      (source_code.length / 4.0).ceil
+      @estimated_tokens ||= (source_code.length / 4.0).ceil
     end
 
     # Check if unit needs chunking based on size

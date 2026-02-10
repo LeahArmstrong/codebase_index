@@ -134,6 +134,30 @@ RSpec.describe CodebaseIndex::Extractor do
     end
   end
 
+  # ── json_serialize ───────────────────────────────────────────────────
+
+  describe "#json_serialize" do
+    before do
+      require "codebase_index"
+    end
+
+    after do
+      CodebaseIndex.configuration = CodebaseIndex::Configuration.new
+    end
+
+    it "returns pretty JSON when pretty_json is true" do
+      CodebaseIndex.configuration.pretty_json = true
+      output = extractor.send(:json_serialize, { key: "value" })
+      expect(output).to include("\n")
+    end
+
+    it "returns compact JSON when pretty_json is false" do
+      CodebaseIndex.configuration.pretty_json = false
+      output = extractor.send(:json_serialize, { key: "value" })
+      expect(output).not_to include("\n")
+    end
+  end
+
   # ── EXTRACTION_DIRECTORIES constant ──────────────────────────────────
 
   describe "EXTRACTION_DIRECTORIES" do

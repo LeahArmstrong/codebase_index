@@ -2,47 +2,35 @@
 
 ## Context
 
-CodebaseIndex is a runtime-aware Rails codebase extraction system (~2,700 lines across 7 extractors). The extraction layer is complete and well-designed. This review identifies **29 items** across performance, security, correctness, coverage, and best practices — prioritized by impact. Items #5, #7, #10, #11 are resolved. Item #6 is partially resolved (49 specs exist, extractor-level specs still needed).
+CodebaseIndex is a runtime-aware Rails codebase extraction system (~2,700 lines across 7 extractors). The extraction layer is complete and well-designed. This review identifies **29 items** across performance, security, correctness, coverage, and best practices — prioritized by impact. **Batches 1-4 fully resolved** (items #1-5, #7-11, #15-17) in commit `cab9061`. Item #6 is partially resolved (86 gem specs + 87 integration specs; extractor-level fixture specs still needed).
 
 ---
 
 ## Critical: Performance
 
-### 1. Git Data Extraction — N+1 Shell Commands
+### 1. ✅ Git Data Extraction — N+1 Shell Commands — RESOLVED
 **Files:** `lib/codebase_index/extractor.rb:191-247`
+**Resolution:** Replaced per-file subprocess spawns with `batch_git_data` — two git commands total (`git log --all --name-only` + parsing). Commit `cab9061`.
 
-Currently spawns **6-7 shell processes per unit file** (`git log`, `git rev-list`, `git shortlog`). For a codebase with 200 units, that's ~1,400 subprocess spawns — easily the biggest bottleneck.
+~~Currently spawns **6-7 shell processes per unit file** (`git log`, `git rev-list`, `git shortlog`). For a codebase with 200 units, that's ~1,400 subprocess spawns — easily the biggest bottleneck.~~
 
-**Fix:** Batch git operations into 1-2 calls:
-- Single `git log --all --name-only --format=...` to gather per-file stats
-- Parse the output in Ruby instead of per-file subprocess calls
-- Also eliminates the duplicate `git rev-list --count HEAD` call (appears in both `extract_git_data` and `calculate_change_frequency`)
-
-### 2. Repeated File Reads Within Each Extractor
+### 2. ✅ Repeated File Reads Within Each Extractor — RESOLVED
 **Files:** All 7 extractors
+**Resolution:** Each extractor now reads source once and passes the string through all methods. Commit `cab9061`.
 
-Each extractor reads the same file 3-5 times during a single extraction:
-- `model_extractor.rb`: `source_file_for` → `build_composite_source` → `extract_scopes` → `extract_dependencies` → `count_loc` (each calls `File.read`)
-- `controller_extractor.rb`: `build_composite_source` → `extract_respond_formats` → `extract_permitted_params` → `extract_dependencies` → `extract_action_source` per action
+~~Each extractor reads the same file 3-5 times during a single extraction.~~
 
-**Fix:** Read file once, pass `source` string through all methods. Several extractors (service, job) already partially do this — apply consistently.
+### 3. ✅ O(n^2) Model Name Scanning in Dependency Extraction — RESOLVED
+**Files:** All extractors
+**Resolution:** `ModelNameCache` precomputes model names and builds a single compiled regex shared across all extractors. Commit `cab9061`.
 
-### 3. O(n^2) Model Name Scanning in Dependency Extraction
-**Files:** `model_extractor.rb:393-400`, `controller_extractor.rb:279-284`, `service_extractor.rb:280-287`, `job_extractor.rb:343-350`, `mailer_extractor.rb:231-238`, `phlex_extractor.rb:212-222`
+~~Every extractor iterates all `ActiveRecord::Base.descendants` for every unit to find model name references.~~
 
-Every extractor iterates **all** `ActiveRecord::Base.descendants` for **every** unit to find model name references. With 100 models and 150 total units, that's 15,000 regex matches.
+### 4. ✅ O(n) Linear `find_unit` in Dependency Resolution — RESOLVED
+**File:** `lib/codebase_index/extractor.rb`
+**Resolution:** `resolve_dependents` now builds a `{ identifier => unit }` hash via `index_by` before the loop. Commit `cab9061`.
 
-**Fix:**
-- Precompute model names list once (a frozen Set or Array)
-- Build a single compiled regex: `/\b(?:User|Order|Product|...)\b/`
-- Share across all extractors via dependency injection or module-level cache
-
-### 4. O(n) Linear `find_unit` in Dependency Resolution
-**File:** `lib/codebase_index/extractor.rb:164-166`
-
-`resolve_dependents` calls `find_unit` (linear scan) for every dependency of every unit.
-
-**Fix:** Build a `{ identifier => unit }` hash before the loop. One-liner change, major improvement for large codebases.
+~~`resolve_dependents` calls `find_unit` (linear scan) for every dependency of every unit.~~
 
 ---
 
@@ -59,11 +47,10 @@ Every extractor iterates **all** `ActiveRecord::Base.descendants` for **every** 
 ## Critical: Missing Fundamentals
 
 ### 6. 🔶 Test Suite — PARTIALLY RESOLVED
-**Status:** 49 specs exist across `spec/extracted_unit_spec.rb`, `spec/dependency_graph_spec.rb`, and `spec/graph_analyzer_spec.rb`. Unit-level coverage for core value objects and graph analysis is in place.
+**Status:** 86 unit specs in the gem (`spec/`) + 87 integration specs in the test app (`test_app/spec/`). Unit-level coverage for core value objects, graph analysis, ModelNameCache, and json_serialize. Integration coverage for full extraction pipeline, incremental extraction, `:via` assertions, `_index.json` regeneration, git metadata structure, and `pretty_json` config.
 
 **Remaining:** Extractor-level specs against fixture Rails apps are still needed. Priority areas:
 - Individual extractors with fixture classes (requires a booted Rails environment)
-- Integration test for full extraction pipeline
 - Edge cases: empty files, namespaced classes, STI, concern inlining
 
 ---
@@ -76,17 +63,16 @@ Every extractor iterates **all** `ActiveRecord::Base.descendants` for **every** 
 
 ~~`@type_index` used symbol keys (`:model`) during extraction, but `from_h` loaded string keys from JSON.~~
 
-### 8. Incremental Extraction Doesn't Update Index Files
-**File:** `lib/codebase_index/extractor.rb:107-128`
+### 8. ✅ Incremental Extraction Doesn't Update Index Files — RESOLVED
+**File:** `lib/codebase_index/extractor.rb`
+**Resolution:** `extract_changed` now tracks `affected_types` and calls `regenerate_type_index` for each. Commit `cab9061`.
 
-`extract_changed` re-writes individual unit JSON files and the dependency graph, but skips `_index.json` files and `SUMMARY.md`. Downstream consumers relying on the index get stale data.
+~~`extract_changed` re-writes individual unit JSON files and the dependency graph, but skips `_index.json` files.~~
 
-**Fix:** Regenerate affected type `_index.json` files after incremental extraction.
+### 9. ✅ Inconsistent `:via` Key in Dependencies — RESOLVED
+**Resolution:** All extractors now include `:via` key (`:association`, `:code_reference`) consistently. Commit `cab9061`.
 
-### 9. Inconsistent `:via` Key in Dependencies
-Model extractor includes `:via` (`:association`, `:code_reference`), but controller, service, job, and mailer extractors omit it. This inconsistency makes relationship types ambiguous for downstream consumers.
-
-**Fix:** Add `:via` consistently across all extractors.
+~~Model extractor includes `:via`, but controller, service, job, and mailer extractors omit it.~~
 
 ---
 
@@ -136,42 +122,39 @@ Breaks on multi-line lambda bodies, nested blocks, scopes with comments inside, 
 
 **Fix:** Check module source location first (cheaper), then fall back to method-level checks.
 
-### 15. Redundant `extract_public_api`/`extract_dsl_methods` Calls
-**File:** `lib/codebase_index/extractors/rails_source_extractor.rb:406-427`
+### 15. ✅ Redundant `extract_public_api`/`extract_dsl_methods` Calls — RESOLVED
+**File:** `lib/codebase_index/extractors/rails_source_extractor.rb`
+**Resolution:** `rate_importance` now receives pre-computed metadata instead of re-extracting. Commit `cab9061`.
 
-`rate_importance` calls `extract_public_api(source)` and `extract_dsl_methods(source)` even though the same data was just computed for `metadata`.
+~~`rate_importance` calls `extract_public_api(source)` and `extract_dsl_methods(source)` even though the same data was just computed.~~
 
-**Fix:** Pass the already-extracted metadata to `rate_importance`.
+### 16. ✅ `JSON.pretty_generate` for All Output — RESOLVED
+**File:** `lib/codebase_index/extractor.rb`
+**Resolution:** Added `config.pretty_json` (defaults to `true` for backward compat). `json_serialize` dispatches to `pretty_generate` or `generate` based on config. Commit `cab9061`.
 
-### 16. `JSON.pretty_generate` for All Output
-**File:** `lib/codebase_index/extractor.rb:261-288`
-
-Pretty-printed JSON adds ~30-40% size overhead from whitespace. For large codebases with hundreds of units, this adds up.
-
-**Fix:** Default to `JSON.generate`, add a config option for pretty output (useful for debugging).
+~~Pretty-printed JSON adds ~30-40% size overhead from whitespace.~~
 
 ---
 
 ## Low: Minor Improvements
 
-### 17. Cache `git_available?` Result
-**File:** `lib/codebase_index/extractor.rb:187-189`
+### 17. ✅ Cache `git_available?` Result — RESOLVED
+**File:** `lib/codebase_index/extractor.rb`
+**Resolution:** Memoized with `defined?(@git_available)` guard. Commit `cab9061`.
 
-Spawns a subprocess every time it's called. Won't change during an extraction run.
+~~Spawns a subprocess every time it's called.~~
 
-**Fix:** Memoize: `@git_available ||= system(...)`.
+### 18. ✅ Memoize `estimated_tokens` — RESOLVED
+**File:** `lib/codebase_index/extracted_unit.rb`
+**Resolution:** Memoized with `@estimated_tokens ||=`. Safe because `source_code` is set once during extraction.
 
-### 18. Memoize `estimated_tokens`
-**File:** `lib/codebase_index/extracted_unit.rb:66-69`
+~~Recalculates on every call.~~
 
-Recalculates on every call. Minor, but called multiple times during chunking decisions.
+### 19. ✅ Use Set for Job Deduplication — RESOLVED
+**File:** `lib/codebase_index/extractors/job_extractor.rb`
+**Resolution:** Replaced O(n) `units.any?` with a `Set` of seen identifiers for O(1) lookup.
 
-**Fix:** `@estimated_tokens ||= (source_code.length / 4.0).ceil`
-
-### 19. Use Set for Job Deduplication
-**File:** `lib/codebase_index/extractors/job_extractor.rb:55`
-
-`units.any? { |u| u.identifier == job_class.name }` is O(n) per check. Use a Set of identifiers for O(1).
+~~`units.any? { |u| u.identifier == job_class.name }` is O(n) per check.~~
 
 ### 20. Configuration Validation
 **File:** `lib/codebase_index.rb:35-58`
@@ -194,12 +177,11 @@ Extractors run sequentially but are independent.
 
 **Fix:** Use `Concurrent::Promises` or `Thread.new` with `Queue` for parallel extraction. Guard with a config flag.
 
-### 23. Missing Mailer/Job Types in `re_extract_unit`
-**File:** `lib/codebase_index/extractor.rb:417-429`
+### 23. ✅ Missing Mailer/Job Types in `re_extract_unit` — RESOLVED
+**File:** `lib/codebase_index/extractor.rb`
+**Resolution:** `re_extract_unit` now uses `TYPE_TO_EXTRACTOR_KEY` mapping and handles all types including `:job`, `:mailer`, and GraphQL types. Commit `cab9061`.
 
-The `case` statement for re-extraction only handles `:model`, `:controller`, `:service`, `:component`. Missing `:job` and `:mailer` types means incremental extraction silently skips these.
-
-**Fix:** Add `:job` and `:mailer` cases.
+~~The `case` statement for re-extraction only handles `:model`, `:controller`, `:service`, `:component`.~~
 
 ---
 
@@ -247,27 +229,27 @@ The retrieval pipeline has no reranking stage. After initial retrieval (vector +
 
 ## Recommended Implementation Order
 
-**Batch 1 — High-impact, low-risk (3 remaining):**
+**Batch 1 — High-impact, low-risk:** ✅ ALL RESOLVED
 1. ~~Fix bare `rescue` blocks (#10)~~ ✅
-2. Fix `find_unit` O(n) scan (#4)
+2. ~~Fix `find_unit` O(n) scan (#4)~~ ✅ `cab9061`
 3. ~~Fix DependencyGraph key mismatch (#7)~~ ✅
-4. Fix missing types in `re_extract_unit` (#23)
-5. Fix incremental index file updates (#8)
+4. Fix missing types in `re_extract_unit` (#23) ✅ `cab9061`
+5. ~~Fix incremental index file updates (#8)~~ ✅ `cab9061`
 
-**Batch 2 — Performance wins (3 remaining):**
-6. Eliminate repeated file reads (#2)
-7. Precompute model names for dependency scanning (#3)
+**Batch 2 — Performance wins:** ✅ ALL RESOLVED
+6. ~~Eliminate repeated file reads (#2)~~ ✅ `cab9061`
+7. ~~Precompute model names for dependency scanning (#3)~~ ✅ `cab9061`
 8. ~~Move `eager_load!` to orchestrator (#11)~~ ✅
-9. Cache `git_available?` (#17)
+9. ~~Cache `git_available?` (#17)~~ ✅ `cab9061`
 
-**Batch 3 — ~~Security +~~ Git performance (1 remaining):**
+**Batch 3 — Security + Git performance:** ✅ ALL RESOLVED
 10. ~~Fix shell injection in git commands (#5)~~ ✅
-11. Batch git data extraction (#1)
+11. ~~Batch git data extraction (#1)~~ ✅ `cab9061`
 
-**Batch 4 — Code quality:**
-12. Add consistent `:via` key (#9)
-13. Reduce `JSON.pretty_generate` overhead (#16)
-14. Fix redundant analysis calls (#15)
+**Batch 4 — Code quality:** ✅ ALL RESOLVED
+12. ~~Add consistent `:via` key (#9)~~ ✅ `cab9061`
+13. ~~Reduce `JSON.pretty_generate` overhead (#16)~~ ✅ `cab9061`
+14. ~~Fix redundant analysis calls (#15)~~ ✅ `cab9061`
 
 **Batch 5 — Extraction coverage:**
 15. Add serializer/decorator extractor (#24)
@@ -282,7 +264,7 @@ The retrieval pipeline has no reranking stage. After initial retrieval (vector +
 20. Update scale assumptions to 993-model baseline (#27)
 
 **Deferred (needs more design):**
-- Test suite (#6) — partially resolved, extractor-level specs still needed
+- Test suite (#6) — 86 gem + 87 integration specs; extractor-level fixture specs still needed
 - Method boundary detection (#12) — needs gem dependency decision
 - Concurrent extraction (#22) — needs thread-safety audit
 - Token estimation (#21) — needs benchmarking
