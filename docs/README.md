@@ -10,6 +10,7 @@
 | [CONTEXT_AND_CHUNKING.md](CONTEXT_AND_CHUNKING.md) | How units are split into embeddable chunks, how retrieved chunks are formatted for different LLMs, token budget interaction, and validation plan |
 | [OPERATIONS.md](OPERATIONS.md) | Production concerns — schema management (migrations, versioning, upgrades), error handling and graceful degradation (circuit breakers, fallback tiers), observability (instrumentation, tracing, structured logging, health checks) |
 | [AGENTIC_STRATEGY.md](AGENTIC_STRATEGY.md) | How AI agents should consume the system — tool-use interface, task-to-strategy mapping, multi-turn patterns, MCP server design, anti-patterns, evaluation queries |
+| [MODEL_EXTRACTION_FIXES.md](MODEL_EXTRACTION_FIXES.md) | Six model extraction fixes (chunking gate, Proc serialization, STI detection, method filtering, callback conditions, token estimation) and their impact on downstream AI consumption |
 
 ## Reading Order
 

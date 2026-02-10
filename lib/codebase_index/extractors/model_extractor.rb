@@ -20,6 +20,14 @@ module CodebaseIndex
     #   user_unit = units.find { |u| u.identifier == "User" }
     #
     class ModelExtractor
+      AR_INTERNAL_METHOD_PATTERNS = [
+        /\A_/,                                    # _run_save_callbacks, _validators, etc.
+        /\Aautosave_associated_records_for_/,     # autosave_associated_records_for_comments
+        /\Avalidate_associated_records_for_/,     # validate_associated_records_for_comments
+        /\Aafter_(?:add|remove)_for_/,            # collection callbacks
+        /\Abefore_(?:add|remove)_for_/            # collection callbacks
+      ].freeze
+
       def initialize
         @concern_cache = {}
       end
@@ -54,8 +62,8 @@ module CodebaseIndex
         unit.metadata = extract_metadata(model, source)
         unit.dependencies = extract_dependencies(model, source)
 
-        # Chunk large models for better retrieval precision
-        unit.chunks = build_chunks(unit) if unit.needs_chunking?
+        # Build semantic chunks for all models (summary, associations, callbacks, validations)
+        unit.chunks = build_chunks(unit)
 
         unit
       rescue StandardError => e
@@ -274,11 +282,12 @@ module CodebaseIndex
 
           # API surface
           class_methods: model.methods(false).sort,
-          instance_methods: model.instance_methods(false).sort,
+          instance_methods: filter_instance_methods(model.instance_methods(false)).sort,
 
           # Inheritance
           sti_column: model.inheritance_column,
-          is_sti_base: model.descends_from_active_record?,
+          is_sti_base: sti_base?(model),
+          is_sti_child: sti_child?(model),
           parent_class: model.superclass.name,
 
           # Metrics for retrieval ranking
@@ -323,16 +332,14 @@ module CodebaseIndex
       def extract_validations(model)
         model._validators.flat_map do |attribute, validators|
           validators.map do |v|
-            {
+            entry = {
               attribute: attribute,
               type: v.class.name.demodulize.underscore.sub(/_validator$/, ''),
               options: v.options.except(:if, :unless, :on),
-              conditions: {
-                if: v.options[:if],
-                unless: v.options[:unless],
-                on: v.options[:on]
-              }.compact
+              conditions: format_validation_conditions(v)
             }
+            entry[:implicit_belongs_to] = true if implicit_belongs_to_validator?(v)
+            entry
           end
         end
       end
@@ -357,12 +364,7 @@ module CodebaseIndex
               type: type,
               filter: cb.filter.to_s,
               kind: cb.kind, # :before, :after, :around
-              options: {
-                if: cb.options[:if],
-                unless: cb.options[:unless],
-                on: cb.options[:on],
-                prepend: cb.options[:prepend]
-              }.compact
+              conditions: format_callback_conditions(cb)
             }
           end
         rescue NoMethodError
@@ -571,6 +573,103 @@ module CodebaseIndex
 
           #{sections.join("\n")}
         VALIDATIONS
+      end
+
+      # ──────────────────────────────────────────────────────────────────────
+      # Condition & Filter Helpers
+      # ──────────────────────────────────────────────────────────────────────
+
+      # Human-readable label for a condition (Symbol, Proc, String, etc.)
+      #
+      # @param condition [Object] A proc, symbol, or other condition
+      # @return [String]
+      def condition_label(condition)
+        case condition
+        when Symbol then ":#{condition}"
+        when Proc then 'Proc'
+        when String then condition
+        else condition.class.name
+        end
+      end
+
+      # Build conditions hash from validator options, converting Procs to labels
+      #
+      # @param validator [ActiveModel::Validator]
+      # @return [Hash]
+      def format_validation_conditions(validator)
+        conditions = {}
+        conditions[:if] = Array(validator.options[:if]).map { |c| condition_label(c) } if validator.options[:if]
+        conditions[:unless] = Array(validator.options[:unless]).map { |c| condition_label(c) } if validator.options[:unless]
+        conditions[:on] = validator.options[:on] if validator.options[:on]
+        conditions
+      end
+
+      # Build conditions hash from callback ivars (not .options, which doesn't exist)
+      #
+      # @param callback [ActiveSupport::Callbacks::Callback]
+      # @return [Hash]
+      def format_callback_conditions(callback)
+        conditions = {}
+
+        if callback.instance_variable_defined?(:@if)
+          if_conds = Array(callback.instance_variable_get(:@if))
+          conditions[:if] = if_conds.map { |c| condition_label(c) } if if_conds.any?
+        end
+
+        if callback.instance_variable_defined?(:@unless)
+          unless_conds = Array(callback.instance_variable_get(:@unless))
+          conditions[:unless] = unless_conds.map { |c| condition_label(c) } if unless_conds.any?
+        end
+
+        conditions
+      end
+
+      # Detect Rails-generated implicit belongs_to presence validators
+      #
+      # @param validator [ActiveModel::Validator]
+      # @return [Boolean]
+      def implicit_belongs_to_validator?(validator)
+        if defined?(ActiveRecord::Validations::PresenceValidator)
+          return false unless validator.is_a?(ActiveRecord::Validations::PresenceValidator)
+        end
+
+        loc = validator.class.instance_method(:validate).source_location&.first
+        loc && !loc.start_with?(Rails.root.to_s)
+      rescue StandardError
+        false
+      end
+
+      # Filter out ActiveRecord-internal generated instance methods
+      #
+      # @param methods [Array<Symbol>]
+      # @return [Array<Symbol>]
+      def filter_instance_methods(methods)
+        methods.reject do |method_name|
+          name = method_name.to_s
+          AR_INTERNAL_METHOD_PATTERNS.any? { |pattern| pattern.match?(name) }
+        end
+      end
+
+      # True STI base detection: requires both descends_from_active_record? AND
+      # the inheritance column actually exists in the table
+      #
+      # @param model [Class]
+      # @return [Boolean]
+      def sti_base?(model)
+        return false unless model.descends_from_active_record?
+        return false unless model.table_exists?
+
+        model.column_names.include?(model.inheritance_column)
+      end
+
+      # Detect STI child classes (superclass is a concrete AR model, not AR::Base)
+      #
+      # @param model [Class]
+      # @return [Boolean]
+      def sti_child?(model)
+        return false if model.descends_from_active_record?
+
+        model.superclass < ActiveRecord::Base && model.superclass != ActiveRecord::Base
       end
 
       # ──────────────────────────────────────────────────────────────────────
