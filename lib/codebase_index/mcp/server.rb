@@ -1,6 +1,7 @@
 # frozen_string_literal: true
 
 require 'mcp'
+require 'set'
 require_relative 'index_reader'
 
 module CodebaseIndex
@@ -53,20 +54,48 @@ module CodebaseIndex
           ::MCP::Tool::Response.new([{ type: 'text', text: text }])
         end
 
+        def truncate_section(array, limit)
+          return array unless array.is_a?(Array)
+
+          array.first(limit).map do |item|
+            next item unless item.is_a?(Hash) && item['dependents'].is_a?(Array) && item['dependents'].size > limit
+
+            item.merge(
+              'dependents' => item['dependents'].first(limit),
+              'dependents_truncated' => true,
+              'dependents_total' => item['dependents'].size
+            )
+          end
+        end
+
         def define_lookup_tool(server, reader, respond)
           server.define_tool(
             name: 'lookup',
-            description: 'Look up a code unit by its exact identifier. Returns full source code, metadata, dependencies, and dependents.',
+            description: 'Look up a code unit by its exact identifier. Returns full source code, metadata, ' \
+                         'dependencies, and dependents. Use include_source: false to omit source_code. ' \
+                         'Use sections to select specific keys (type, identifier, file_path, namespace are always included).',
             input_schema: {
               properties: {
-                identifier: { type: 'string', description: 'Exact unit identifier (e.g. "Post", "PostsController", "Api::V1::HealthController")' }
+                identifier: { type: 'string', description: 'Exact unit identifier (e.g. "Post", "PostsController", "Api::V1::HealthController")' },
+                include_source: { type: 'boolean', description: 'Include source_code in response (default: true)' },
+                sections: {
+                  type: 'array', items: { type: 'string' },
+                  description: 'Select specific keys to return (e.g. ["metadata", "dependencies"]). Always includes type, identifier, file_path, namespace.'
+                }
               },
               required: ['identifier']
             }
-          ) do |identifier:, server_context:|
+          ) do |identifier:, include_source: nil, sections: nil, server_context:|
             unit = reader.find_unit(identifier)
             if unit
-              respond.call(JSON.pretty_generate(unit))
+              always_include = %w[type identifier file_path namespace]
+              filtered = unit
+              filtered = filtered.except('source_code') if include_source == false
+              if sections
+                allowed = (always_include + sections).to_set
+                filtered = filtered.select { |k, _| allowed.include?(k) }
+              end
+              respond.call(JSON.pretty_generate(filtered))
             else
               respond.call("Unit not found: #{identifier}")
             end
@@ -128,6 +157,9 @@ module CodebaseIndex
               depth: depth || 2,
               types: types
             )
+            if result[:found] == false
+              result[:message] = "Identifier '#{identifier}' not found in the index. Use 'search' to find valid identifiers."
+            end
             respond.call(JSON.pretty_generate(result))
           end
         end
@@ -153,6 +185,9 @@ module CodebaseIndex
               depth: depth || 2,
               types: types
             )
+            if result[:found] == false
+              result[:message] = "Identifier '#{identifier}' not found in the index. Use 'search' to find valid identifiers."
+            end
             respond.call(JSON.pretty_generate(result))
           end
         end
@@ -179,6 +214,7 @@ module CodebaseIndex
         end
 
         def define_graph_analysis_tool(server, reader, respond)
+          truncate = method(:truncate_section)
           server.define_tool(
             name: 'graph_analysis',
             description: 'Get structural analysis of the dependency graph: orphans, dead ends, hubs, cycles, and bridges.',
@@ -189,7 +225,7 @@ module CodebaseIndex
                   enum: %w[orphans dead_ends hubs cycles bridges all],
                   description: 'Which analysis to return. Default: all'
                 },
-                limit: { type: 'integer', description: 'Limit results for hubs/bridges (default: 20)' }
+                limit: { type: 'integer', description: 'Limit results per section (default: 20)' }
               }
             }
           ) do |analysis: nil, limit: nil, server_context:|
@@ -197,16 +233,34 @@ module CodebaseIndex
             section = analysis || 'all'
 
             result = if section == 'all'
-                       data
-                     else
-                       { section => data[section], 'stats' => data['stats'] }
-                     end
+                       if limit
+                         truncated = data.dup
+                         %w[orphans dead_ends hubs cycles bridges].each do |key|
+                           next unless truncated[key].is_a?(Array)
 
-            # Apply limit to array sections
-            if limit && result[section].is_a?(Array)
-              result = result.dup
-              result[section] = result[section].first(limit)
-            end
+                           original = truncated[key]
+                           truncated[key] = truncate.call(original, limit)
+                           if original.size > limit
+                             truncated["#{key}_total"] = original.size
+                             truncated["#{key}_truncated"] = true
+                           end
+                         end
+                         truncated
+                       else
+                         data
+                       end
+                     else
+                       single = { section => data[section], 'stats' => data['stats'] }
+                       if limit && data[section].is_a?(Array)
+                         original = data[section]
+                         single[section] = truncate.call(original, limit)
+                         if original.size > limit
+                           single["#{section}_total"] = original.size
+                           single["#{section}_truncated"] = true
+                         end
+                       end
+                       single
+                     end
 
             respond.call(JSON.pretty_generate(result))
           end
