@@ -82,6 +82,7 @@ namespace :codebase_index do
       %r{^app/jobs/},
       %r{^app/workers/},       # Sidekiq workers
       %r{^app/mailers/},
+      %r{^app/graphql/},          # GraphQL types/mutations/resolvers
       %r{^db/migrate/},
       %r{^db/schema\.rb$},    # Schema changes affect model metadata
       %r{^config/routes\.rb$},
