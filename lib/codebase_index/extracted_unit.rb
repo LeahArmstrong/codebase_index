@@ -1,6 +1,7 @@
 # frozen_string_literal: true
 
 require 'digest'
+require 'json'
 
 module CodebaseIndex
   # ExtractedUnit represents a single meaningful unit of code from the codebase.
@@ -61,12 +62,15 @@ module CodebaseIndex
 
     # Estimate token count for chunking decisions
     # Rough estimate: 1 token ≈ 4 characters for code
+    # Includes both source code and metadata weight
     #
     # @return [Integer] Estimated token count
     def estimated_tokens
-      return 0 unless source_code
-
-      @estimated_tokens ||= (source_code.length / 4.0).ceil
+      @estimated_tokens ||= begin
+        source_tokens = source_code ? (source_code.length / 4.0).ceil : 0
+        metadata_tokens = metadata.any? ? (metadata.to_json.length / 4.0).ceil : 0
+        source_tokens + metadata_tokens
+      end
     end
 
     # Check if unit needs chunking based on size
