@@ -183,14 +183,80 @@ module CodebaseIndex
 
       def extract_filter_chain(controller)
         controller._process_action_callbacks.map do |callback|
-          {
-            kind: callback.kind,
-            filter: callback.filter,
-            only: Array(callback.options[:only]),
-            except: Array(callback.options[:except]),
-            if: callback.options[:if],
-            unless: callback.options[:unless]
-          }
+          only, except, if_conds, unless_conds = extract_callback_conditions(callback)
+
+          result = { kind: callback.kind, filter: callback.filter }
+          result[:only] = only if only.any?
+          result[:except] = except if except.any?
+          result[:if] = if_conds.join(", ") if if_conds.any?
+          result[:unless] = unless_conds.join(", ") if unless_conds.any?
+          result
+        end
+      end
+
+      # Extract :only/:except action lists and :if/:unless conditions from a callback.
+      #
+      # Modern Rails (4.2+) stores conditions in @if/@unless ivar arrays.
+      # ActionFilter objects hold action Sets; other conditions are procs/symbols.
+      #
+      # @param callback [ActiveSupport::Callbacks::Callback]
+      # @return [Array(Array<String>, Array<String>, Array<String>, Array<String>)]
+      #   [only_actions, except_actions, if_labels, unless_labels]
+      def extract_callback_conditions(callback)
+        if_conditions = callback.instance_variable_get(:@if) || []
+        unless_conditions = callback.instance_variable_get(:@unless) || []
+
+        only = []
+        except = []
+        if_labels = []
+        unless_labels = []
+
+        if_conditions.each do |cond|
+          actions = extract_action_filter_actions(cond)
+          if actions
+            only.concat(actions)
+          else
+            if_labels << condition_label(cond)
+          end
+        end
+
+        unless_conditions.each do |cond|
+          actions = extract_action_filter_actions(cond)
+          if actions
+            except.concat(actions)
+          else
+            unless_labels << condition_label(cond)
+          end
+        end
+
+        [only, except, if_labels, unless_labels]
+      end
+
+      # Extract action names from an ActionFilter-like condition object.
+      # Duck-types on the @actions ivar being a Set, avoiding dependence
+      # on private class names across Rails versions.
+      #
+      # @param condition [Object] A condition from the callback's @if/@unless array
+      # @return [Array<String>, nil] Action names, or nil if not an ActionFilter
+      def extract_action_filter_actions(condition)
+        return nil unless condition.instance_variable_defined?(:@actions)
+
+        actions = condition.instance_variable_get(:@actions)
+        return nil unless actions.is_a?(Set)
+
+        actions.to_a
+      end
+
+      # Human-readable label for a non-ActionFilter condition.
+      #
+      # @param condition [Object] A proc, symbol, or other condition
+      # @return [String]
+      def condition_label(condition)
+        case condition
+        when Symbol then ":#{condition}"
+        when Proc then "Proc"
+        when String then condition
+        else condition.class.name
         end
       end
 
@@ -225,7 +291,7 @@ module CodebaseIndex
 
           # Metrics
           action_count: actions.size,
-          filter_count: controller._process_action_callbacks.size,
+          filter_count: controller._process_action_callbacks.count,
 
           # Strong parameters if definable
           permitted_params: extract_permitted_params(controller)
@@ -365,16 +431,42 @@ module CodebaseIndex
       end
 
       def applicable_filters(controller, action)
-        action_sym = action.to_sym
+        action_name = action.to_s
 
         controller._process_action_callbacks.select do |cb|
-          applies = true
-          applies = false if cb.options[:only]&.any? && !cb.options[:only].include?(action_sym)
-          applies = false if cb.options[:except]&.include?(action_sym)
-          applies
+          callback_applies_to_action?(cb, action_name)
         end.map do |cb|
           { kind: cb.kind, filter: cb.filter }
         end
+      end
+
+      # Determine if a callback applies to a given action name.
+      #
+      # Checks ActionFilter objects in @if (only) and @unless (except).
+      # Non-ActionFilter conditions (procs, symbols) are assumed true.
+      #
+      # @param callback [ActiveSupport::Callbacks::Callback]
+      # @param action_name [String]
+      # @return [Boolean]
+      def callback_applies_to_action?(callback, action_name)
+        if_conditions = callback.instance_variable_get(:@if) || []
+        unless_conditions = callback.instance_variable_get(:@unless) || []
+
+        # Check @if conditions — all must pass for the callback to apply
+        if_conditions.each do |cond|
+          actions = extract_action_filter_actions(cond)
+          next unless actions # skip non-ActionFilter conditions (assume true)
+          return false unless actions.include?(action_name)
+        end
+
+        # Check @unless conditions — if any match, callback doesn't apply
+        unless_conditions.each do |cond|
+          actions = extract_action_filter_actions(cond)
+          next unless actions
+          return false if actions.include?(action_name)
+        end
+
+        true
       end
 
       def extract_action_source(controller, action)
