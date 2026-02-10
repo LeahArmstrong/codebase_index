@@ -40,7 +40,7 @@ class CreateCodebaseIndexTables < ActiveRecord::Migration[7.0]
   def change
     create_table :codebase_units, id: false do |t|
       t.string :id, primary_key: true
-      t.string :unit_type, null: false, limit: 50
+      t.string :unit_type, null: false, limit: 50  # model, controller, service, job, mailer, component, graphql_type, graphql_mutation, graphql_resolver, graphql_query, framework_source
       t.string :namespace, limit: 255
       t.string :file_path, limit: 500
       t.text :source_code, size: :medium  # MEDIUMTEXT on MySQL, TEXT on PG
@@ -383,7 +383,7 @@ module CodebaseIndex
       result = yield
       reset! if @state == :half_open
       result
-    rescue => e
+    rescue StandardError => e
       record_failure!
       raise
     end
@@ -639,6 +639,7 @@ Every significant operation emits a structured event:
 | `extraction.started` | `{ mode:, extractors:, git_sha: }` | Extraction begins |
 | `extraction.unit_extracted` | `{ identifier:, type:, tokens:, chunks:, file_path: }` | Each unit extracted |
 | `extraction.unit_skipped` | `{ identifier:, reason: }` | Unit skipped (error, excluded) |
+| `extraction.graph_analysis` | `{ orphans:, dead_ends:, hubs:, cycles:, bridges:, duration: }` | Graph structural analysis completes |
 | `extraction.completed` | `{ units:, duration:, git_sha:, errors: }` | Extraction finishes |
 
 **Embedding events:**
@@ -946,7 +947,7 @@ module CodebaseIndex
       start = Time.now
       yield
       { status: :ok, latency_ms: ((Time.now - start) * 1000).round(1) }
-    rescue => e
+    rescue StandardError => e
       { status: :error, error: e.message }
     end
 

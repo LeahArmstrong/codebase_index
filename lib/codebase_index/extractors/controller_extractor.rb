@@ -1,5 +1,7 @@
 # frozen_string_literal: true
 
+require "digest"
+
 module CodebaseIndex
   module Extractors
     # ControllerExtractor handles ActionController extraction with:
@@ -25,8 +27,6 @@ module CodebaseIndex
       #
       # @return [Array<ExtractedUnit>] List of controller units
       def extract_all
-        Rails.application.eager_load!
-
         ApplicationController.descendants.map do |controller|
           extract_controller(controller)
         end.compact
@@ -52,7 +52,7 @@ module CodebaseIndex
         unit.chunks = build_action_chunks(controller, unit)
 
         unit
-      rescue => e
+      rescue StandardError => e
         Rails.logger.error("Failed to extract controller #{controller.name}: #{e.message}")
         nil
       end
@@ -103,7 +103,7 @@ module CodebaseIndex
           method = controller.instance_methods(false).first
           controller.instance_method(method).source_location&.first
         end || Rails.root.join("app/controllers/#{controller.name.underscore}.rb").to_s
-      rescue
+      rescue StandardError
         Rails.root.join("app/controllers/#{controller.name.underscore}.rb").to_s
       end
 
@@ -332,17 +332,20 @@ module CodebaseIndex
             "No direct route"
           end
 
+          chunk_content = <<~ACTION
+          # Controller: #{controller.name}
+          # Action: #{action}
+          # Route: #{route_desc}
+          # Filters: #{filters.map { |f| "#{f[:kind]}(:#{f[:filter]})" }.join(", ").presence || "none"}
+
+          #{action_source}
+          ACTION
+
           {
             chunk_type: :action,
             identifier: "#{controller.name}##{action}",
-            content: <<~ACTION,
-            # Controller: #{controller.name}
-            # Action: #{action}
-            # Route: #{route_desc}
-            # Filters: #{filters.map { |f| "#{f[:kind]}(:#{f[:filter]})" }.join(", ").presence || "none"}
-
-            #{action_source}
-            ACTION
+            content: chunk_content,
+            content_hash: Digest::SHA256.hexdigest(chunk_content),
             metadata: {
               parent: unit.identifier,
               action: action.to_s,
@@ -406,7 +409,7 @@ module CodebaseIndex
         end
 
         lines[start_line...end_line].join
-      rescue => e
+      rescue StandardError => e
         Rails.logger.debug("Could not extract action source for #{controller}##{action}: #{e.message}")
         nil
       end

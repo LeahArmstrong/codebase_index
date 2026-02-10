@@ -203,6 +203,10 @@ What kind of code unit is being asked about?
 - `mailer` - Email senders
 - `component` - View components
 - `concern` - Shared modules
+- `graphql_type` - GraphQL object types, input types, enums, unions, interfaces
+- `graphql_mutation` - GraphQL mutations
+- `graphql_resolver` - GraphQL resolvers
+- `graphql_query` - GraphQL query fields
 - `framework` - Rails/gem internals
 - `schema` - Database structure
 - `route` - URL mappings
@@ -575,6 +579,10 @@ module CodebaseIndex
         private
         
         def merge_candidates(candidates)
+          # TODO: Replace this ad-hoc score fusion with Reciprocal Rank Fusion (RRF).
+          # RRF is more robust when merging results from heterogeneous sources
+          # (vector similarity scores vs keyword match scores vs graph expansion).
+          #
           # Group by identifier, combine scores from multiple sources
           candidates
             .group_by(&:identifier)
@@ -945,6 +953,9 @@ module CodebaseIndex
         end
         
         # Get subgraph containing specified types
+        # Supported types include: :model, :controller, :service, :job, :mailer,
+        # :component, :concern, :graphql_type, :graphql_mutation, :graphql_resolver,
+        # :graphql_query, :rails_source
         def subgraph_for_types(types)
           raise NotImplementedError
         end
@@ -1100,11 +1111,12 @@ module CodebaseIndex
         include Interface
         
         MODELS = {
+          "voyage-code-3" => { dimensions: 1024, max_tokens: 32000 },
           "voyage-code-2" => { dimensions: 1536, max_tokens: 16000 },
           "voyage-large-2" => { dimensions: 1536, max_tokens: 16000 }
         }.freeze
-        
-        def initialize(api_key:, model: "voyage-code-2")
+
+        def initialize(api_key:, model: "voyage-code-3")
           @api_key = api_key
           @model = model
           @config = MODELS.fetch(model)
@@ -1203,6 +1215,8 @@ module CodebaseIndex
           prepare_service(unit)
         when :job
           prepare_job(unit)
+        when :graphql_type, :graphql_mutation, :graphql_resolver, :graphql_query
+          prepare_graphql(unit)
         when :rails_source
           prepare_framework(unit)
         else
@@ -1376,18 +1390,22 @@ module CodebaseIndex
       def calculate_importance(unit)
         score = 0
         meta = unit.metadata || {}
-        
+
         # Complexity signals
         score += 2 if (meta[:callback_count] || 0) > 5
         score += 2 if (meta[:association_count] || 0) > 5
         score += 1 if (meta[:loc] || 0) > 200
-        
+
         # Change signals
         score += 2 if meta.dig(:git, :change_frequency)&.to_sym == :hot
-        
+
         # Type signals
         score += 1 if unit.type.to_sym == :model
         score += 1 if unit.type.to_sym == :service
+
+        # TODO: Incorporate PageRank score from DependencyGraph#pagerank
+        # (damping: 0.85, iterations: 20) as an importance signal.
+        # GraphAnalyzer hub/bridge detection can further boost score.
         
         case score
         when 0..2 then "low"
@@ -1830,6 +1848,8 @@ module CodebaseIndex
 end
 ```
 
+> **Future enhancement:** Cross-encoder reranking (e.g., a code-trained cross-encoder) can be added as a second-pass reranker after the lightweight scoring above. Cross-encoders jointly encode query + candidate for higher precision, at the cost of latency. Suitable for top-k refinement (k=10-20) after initial ranking.
+
 ---
 
 ## Interface Layer
@@ -2089,7 +2109,7 @@ module CodebaseIndex
     def initialize
       # Defaults
       @output_dir = default_output_dir
-      @extractors = %i[models controllers services jobs mailers components]
+      @extractors = %i[models controllers services jobs mailers components graphql]
       
       @embedding_provider = :openai
       @embedding_model = "text-embedding-3-small"
@@ -2340,7 +2360,7 @@ end
 Based on the Big Cartel admin application analysis:
 
 **Scale:**
-- 300+ models
+- 993 models
 - 90+ Sidekiq workers
 - Multiple service patterns (services, managers, decorators)
 - Phlex 2.0 + ViewComponent
@@ -2358,7 +2378,7 @@ Based on the Big Cartel admin application analysis:
 CodebaseIndex.configure do |config|
   # Extraction
   config.output_dir = Rails.root.join("tmp/codebase_index")
-  config.extractors = %i[models controllers services jobs mailers components]
+  config.extractors = %i[models controllers services jobs mailers components graphql]
   config.include_framework_sources = true
   
   # Storage: Qdrant for vectors (add to docker-compose)

@@ -49,7 +49,6 @@ module CodebaseIndex
 
         # Also try class-based discovery for ActiveJob
         if defined?(ApplicationJob)
-          Rails.application.eager_load!
           ApplicationJob.descendants.each do |job_class|
             # Skip if already extracted via file
             next if units.any? { |u| u.identifier == job_class.name }
@@ -84,7 +83,7 @@ module CodebaseIndex
         unit.dependencies = extract_dependencies(source)
 
         unit
-      rescue => e
+      rescue StandardError => e
         Rails.logger.error("Failed to extract job #{file_path}: #{e.message}")
         nil
       end
@@ -111,7 +110,7 @@ module CodebaseIndex
         unit.dependencies = extract_dependencies(source)
 
         unit
-      rescue => e
+      rescue StandardError => e
         Rails.logger.error("Failed to extract job #{job_class.name}: #{e.message}")
         nil
       end
@@ -150,7 +149,7 @@ module CodebaseIndex
         if job_class.instance_methods(false).include?(:perform)
           job_class.instance_method(:perform).source_location&.first
         end || Rails.root.join("app/jobs/#{job_class.name.underscore}.rb").to_s
-      rescue
+      rescue StandardError
         nil
       end
 

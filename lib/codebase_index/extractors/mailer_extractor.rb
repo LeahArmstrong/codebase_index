@@ -1,5 +1,7 @@
 # frozen_string_literal: true
 
+require "digest"
+
 module CodebaseIndex
   module Extractors
     # MailerExtractor handles ActionMailer extraction.
@@ -23,8 +25,6 @@ module CodebaseIndex
       #
       # @return [Array<ExtractedUnit>] List of mailer units
       def extract_all
-        Rails.application.eager_load!
-
         @mailer_base.descendants.map do |mailer|
           extract_mailer(mailer)
         end.compact
@@ -57,7 +57,7 @@ module CodebaseIndex
         unit.chunks = build_action_chunks(mailer, source)
 
         unit
-      rescue => e
+      rescue StandardError => e
         Rails.logger.error("Failed to extract mailer #{mailer.name}: #{e.message}")
         nil
       end
@@ -69,7 +69,7 @@ module CodebaseIndex
           method = mailer.instance_methods(false).first
           mailer.instance_method(method).source_location&.first
         end || Rails.root.join("app/mailers/#{mailer.name.underscore}.rb").to_s
-      rescue
+      rescue StandardError
         Rails.root.join("app/mailers/#{mailer.name.underscore}.rb").to_s
       end
 
@@ -84,7 +84,11 @@ module CodebaseIndex
 
       def annotate_source(source, mailer)
         actions = mailer.action_methods.to_a
-        default_from = mailer.default[:from] rescue nil
+        default_from = begin
+          mailer.default[:from]
+        rescue StandardError
+          nil
+        end
 
         <<~ANNOTATION
         # ╔═══════════════════════════════════════════════════════════════════════╗
@@ -141,7 +145,7 @@ module CodebaseIndex
           defaults[:reply_to] = mailer_defaults[:reply_to] if mailer_defaults[:reply_to]
           defaults[:cc] = mailer_defaults[:cc] if mailer_defaults[:cc]
           defaults[:bcc] = mailer_defaults[:bcc] if mailer_defaults[:bcc]
-        rescue
+        rescue StandardError
           # Defaults not accessible
         end
 
@@ -163,7 +167,7 @@ module CodebaseIndex
                 }.compact
               }
             end
-          rescue
+          rescue StandardError
             # Callbacks not accessible
           end
         end
@@ -180,7 +184,7 @@ module CodebaseIndex
         # From class method
         begin
           mailer._layout
-        rescue
+        rescue StandardError
           nil
         end
       end
@@ -261,16 +265,19 @@ module CodebaseIndex
 
           templates = discover_templates(mailer, [action.to_s])[action.to_s] || []
 
+          chunk_content = <<~ACTION
+          # Mailer: #{mailer.name}
+          # Action: #{action}
+          # Templates: #{templates.any? ? templates.join(', ') : 'none found'}
+
+          #{action_source}
+          ACTION
+
           {
             chunk_type: :mail_action,
             identifier: "#{mailer.name}##{action}",
-            content: <<~ACTION,
-            # Mailer: #{mailer.name}
-            # Action: #{action}
-            # Templates: #{templates.any? ? templates.join(', ') : 'none found'}
-
-            #{action_source}
-            ACTION
+            content: chunk_content,
+            content_hash: Digest::SHA256.hexdigest(chunk_content),
             metadata: {
               parent: mailer.name,
               action: action.to_s,
@@ -313,7 +320,7 @@ module CodebaseIndex
         end
 
         lines[start_line...end_line].join
-      rescue => e
+      rescue StandardError => e
         Rails.logger.debug("Could not extract action source for #{mailer}##{action}: #{e.message}")
         nil
       end

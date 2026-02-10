@@ -54,7 +54,7 @@ module CodebaseIndex
         dependencies: dependencies,
         dependents: dependents,
         chunks: chunks,
-        extracted_at: Time.current.iso8601,
+        extracted_at: Time.now.iso8601,
         source_hash: Digest::SHA256.hexdigest(source_code || "")
       }
     end
@@ -96,10 +96,12 @@ module CodebaseIndex
         line_tokens = (line.length / 4.0).ceil
 
         if current_tokens + line_tokens > max_tokens && current_chunk.any?
+          content = header + current_chunk.join
           chunks << {
             chunk_index: chunks.size,
             identifier: "#{identifier}#chunk_#{chunks.size}",
-            content: header + current_chunk.join,
+            content: content,
+            content_hash: Digest::SHA256.hexdigest(content),
             estimated_tokens: current_tokens + header_tokens
           }
           current_chunk = []
@@ -112,10 +114,12 @@ module CodebaseIndex
 
       # Final chunk
       if current_chunk.any?
+        content = header + current_chunk.join
         chunks << {
           chunk_index: chunks.size,
           identifier: "#{identifier}#chunk_#{chunks.size}",
-          content: header + current_chunk.join,
+          content: content,
+          content_hash: Digest::SHA256.hexdigest(content),
           estimated_tokens: current_tokens + header_tokens
         }
       end

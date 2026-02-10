@@ -149,6 +149,47 @@ module CodebaseIndex
       }
     end
 
+    # Compute PageRank scores for all nodes
+    #
+    # Uses the reverse edges (dependents) as the link structure: a node
+    # with many dependents gets a higher score. This matches Aider's insight
+    # that structural importance correlates with retrieval relevance.
+    #
+    # @param damping [Float] Damping factor (default: 0.85)
+    # @param iterations [Integer] Number of iterations (default: 20)
+    # @return [Hash<String, Float>] Identifier => PageRank score
+    def pagerank(damping: 0.85, iterations: 20)
+      n = @nodes.size
+      return {} if n.zero?
+
+      base_score = 1.0 / n
+      scores = @nodes.keys.each_with_object({}) { |id, h| h[id] = base_score }
+
+      iterations.times do
+        # Collect rank from dangling nodes (no outgoing edges) and redistribute
+        dangling_sum = @nodes.keys.sum do |id|
+          (@edges[id].nil? || @edges[id].empty?) ? scores[id] : 0.0
+        end
+
+        new_scores = {}
+
+        @nodes.each_key do |id|
+          # Sum contributions from nodes that depend on this one
+          incoming = @reverse[id] || []
+          rank_sum = incoming.sum do |src|
+            out_degree = (@edges[src] || []).size
+            out_degree.positive? ? scores[src] / out_degree : 0.0
+          end
+
+          new_scores[id] = (1.0 - damping) / n + damping * (rank_sum + dangling_sum / n)
+        end
+
+        scores = new_scores
+      end
+
+      scores
+    end
+
     # Serialize graph for persistence
     #
     # @return [Hash] Complete graph data
@@ -169,16 +210,40 @@ module CodebaseIndex
 
     # Load graph from persisted data
     #
+    # After JSON round-trip all keys become strings. This method normalizes
+    # them back to the expected types: node values use symbol keys (:type,
+    # :file_path, :namespace), and type_index uses symbol keys for types.
+    #
     # @param data [Hash] Previously serialized graph data
     # @return [DependencyGraph] Restored graph
     def self.from_h(data)
       graph = new
-      graph.instance_variable_set(:@nodes, data[:nodes] || data["nodes"] || {})
+
+      raw_nodes = data[:nodes] || data["nodes"] || {}
+      graph.instance_variable_set(:@nodes, raw_nodes.transform_values { |v| symbolize_node(v) })
+
       graph.instance_variable_set(:@edges, data[:edges] || data["edges"] || {})
       graph.instance_variable_set(:@reverse, data[:reverse] || data["reverse"] || {})
       graph.instance_variable_set(:@file_map, data[:file_map] || data["file_map"] || {})
-      graph.instance_variable_set(:@type_index, data[:type_index] || data["type_index"] || {})
+
+      raw_type_index = data[:type_index] || data["type_index"] || {}
+      graph.instance_variable_set(:@type_index, raw_type_index.transform_keys(&:to_sym))
+
       graph
+    end
+
+    # Normalize a node hash to use symbol keys
+    #
+    # @param node [Hash] Node data with string or symbol keys
+    # @return [Hash] Node data with symbol keys
+    def self.symbolize_node(node)
+      return node unless node.is_a?(Hash)
+
+      {
+        type: (node[:type] || node["type"])&.to_sym,
+        file_path: node[:file_path] || node["file_path"],
+        namespace: node[:namespace] || node["namespace"]
+      }
     end
   end
 end

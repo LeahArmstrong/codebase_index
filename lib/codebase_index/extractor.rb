@@ -3,6 +3,7 @@
 require "json"
 require "digest"
 require "fileutils"
+require "open3"
 require "pathname"
 
 require_relative "extracted_unit"
@@ -13,7 +14,9 @@ require_relative "extractors/phlex_extractor"
 require_relative "extractors/service_extractor"
 require_relative "extractors/job_extractor"
 require_relative "extractors/mailer_extractor"
+require_relative "extractors/graphql_extractor"
 require_relative "extractors/rails_source_extractor"
+require_relative "graph_analyzer"
 
 module CodebaseIndex
   # Extractor is the main orchestrator for codebase extraction.
@@ -33,6 +36,7 @@ module CodebaseIndex
     EXTRACTORS = {
       models: Extractors::ModelExtractor,
       controllers: Extractors::ControllerExtractor,
+      graphql: Extractors::GraphQLExtractor,
       components: Extractors::PhlexExtractor,
       services: Extractors::ServiceExtractor,
       jobs: Extractors::JobExtractor,
@@ -58,6 +62,9 @@ module CodebaseIndex
     def extract_all
       setup_output_directory
 
+      # Eager load once — all extractors need loaded classes for introspection
+      Rails.application.eager_load!
+
       # Phase 1: Extract all units
       EXTRACTORS.each do |type, extractor_class|
         Rails.logger.info "[CodebaseIndex] Extracting #{type}..."
@@ -79,14 +86,19 @@ module CodebaseIndex
       Rails.logger.info "[CodebaseIndex] Resolving dependents..."
       resolve_dependents
 
-      # Phase 3: Enrich with git data
+      # Phase 3: Graph analysis (PageRank, structural metrics)
+      Rails.logger.info "[CodebaseIndex] Analyzing dependency graph..."
+      @graph_analysis = GraphAnalyzer.new(@dependency_graph).analyze
+
+      # Phase 4: Enrich with git data
       Rails.logger.info "[CodebaseIndex] Enriching with git data..."
       enrich_with_git_data
 
-      # Phase 4: Write output
+      # Phase 5: Write output
       Rails.logger.info "[CodebaseIndex] Writing output..."
       write_results
       write_dependency_graph
+      write_graph_analysis
       write_manifest
       write_structural_summary
 
@@ -185,16 +197,30 @@ module CodebaseIndex
     end
 
     def git_available?
-      system("git rev-parse --git-dir > /dev/null 2>&1")
+      _, status = Open3.capture2("git", "rev-parse", "--git-dir")
+      status.success?
+    rescue StandardError
+      false
+    end
+
+    # Safe git command execution — no shell interpolation
+    #
+    # @param args [Array<String>] Git command arguments
+    # @return [String] Command output (empty string on failure)
+    def run_git(*args)
+      output, status = Open3.capture2("git", *args)
+      status.success? ? output.strip : ""
+    rescue StandardError
+      ""
     end
 
     def extract_git_data(file_path)
       relative_path = file_path.sub(Rails.root.to_s + "/", "")
 
       {
-        last_modified: `git log -1 --format=%cI -- "#{relative_path}" 2>/dev/null`.strip.presence,
-        last_author: `git log -1 --format='%an' -- "#{relative_path}" 2>/dev/null`.strip.presence,
-        commit_count: `git rev-list --count HEAD -- "#{relative_path}" 2>/dev/null`.strip.to_i,
+        last_modified: run_git("log", "-1", "--format=%cI", "--", relative_path).presence,
+        last_author: run_git("log", "-1", "--format=%an", "--", relative_path).presence,
+        commit_count: run_git("rev-list", "--count", "HEAD", "--", relative_path).to_i,
 
         # Top contributors
         contributors: extract_contributors(relative_path),
@@ -205,44 +231,44 @@ module CodebaseIndex
         # Change frequency classification
         change_frequency: calculate_change_frequency(relative_path)
       }
-    rescue => e
+    rescue StandardError => e
       Rails.logger.debug "[CodebaseIndex] Git data extraction failed for #{file_path}: #{e.message}"
       {}
     end
 
     def extract_contributors(relative_path)
-      output = `git shortlog -sn --no-merges -- "#{relative_path}" 2>/dev/null`
+      output = run_git("shortlog", "-sn", "--no-merges", "--", relative_path)
       output.lines.first(5).map do |line|
         count, name = line.strip.split("\t", 2)
         { name: name, commits: count.to_i }
       end
-    rescue
+    rescue StandardError
       []
     end
 
     def extract_recent_commits(relative_path, limit: 5)
-      output = `git log -#{limit} --format='%H|||%s|||%cI|||%an' -- "#{relative_path}" 2>/dev/null`
+      output = run_git("log", "-#{limit}", "--format=%H|||%s|||%cI|||%an", "--", relative_path)
       output.lines.map do |line|
         sha, message, date, author = line.strip.split("|||")
         { sha: sha&.first(8), message: message, date: date, author: author }
       end
-    rescue
+    rescue StandardError
       []
     end
 
     def calculate_change_frequency(relative_path)
       # Count commits in last 90 days
-      recent = `git rev-list --count --since="90 days ago" HEAD -- "#{relative_path}" 2>/dev/null`.strip.to_i
+      recent = run_git("rev-list", "--count", "--since=90 days ago", "HEAD", "--", relative_path).to_i
 
       # Count total commits
-      total = `git rev-list --count HEAD -- "#{relative_path}" 2>/dev/null`.strip.to_i
+      total = run_git("rev-list", "--count", "HEAD", "--", relative_path).to_i
 
       return :new if total <= 2
       return :hot if recent >= 10
       return :active if recent >= 3
       return :stable if recent >= 1
       :dormant
-    rescue
+    rescue StandardError
       :unknown
     end
 
@@ -283,9 +309,21 @@ module CodebaseIndex
     end
 
     def write_dependency_graph
+      graph_data = @dependency_graph.to_h
+      graph_data[:pagerank] = @dependency_graph.pagerank
+
       File.write(
         @output_dir.join("dependency_graph.json"),
-        JSON.pretty_generate(@dependency_graph.to_h)
+        JSON.pretty_generate(graph_data)
+      )
+    end
+
+    def write_graph_analysis
+      return unless @graph_analysis
+
+      File.write(
+        @output_dir.join("graph_analysis.json"),
+        JSON.pretty_generate(@graph_analysis)
       )
     end
 
@@ -303,8 +341,8 @@ module CodebaseIndex
         total_chunks: @results.values.flatten.sum { |u| u.chunks.size },
 
         # Git info
-        git_sha: `git rev-parse HEAD 2>/dev/null`.strip.presence,
-        git_branch: `git rev-parse --abbrev-ref HEAD 2>/dev/null`.strip.presence,
+        git_sha: run_git("rev-parse", "HEAD").presence,
+        git_branch: run_git("rev-parse", "--abbrev-ref", "HEAD").presence,
 
         # For change detection
         gemfile_lock_sha: gemfile_lock_sha,
@@ -416,15 +454,27 @@ module CodebaseIndex
 
       unit = case type
              when :model
-               klass = unit_id.constantize rescue nil
+               klass = begin
+                 unit_id.constantize
+               rescue StandardError
+                 nil
+               end
                extractor.extract_model(klass) if klass
              when :controller
-               klass = unit_id.constantize rescue nil
+               klass = begin
+                 unit_id.constantize
+               rescue StandardError
+                 nil
+               end
                extractor.extract_controller(klass) if klass
              when :service
                extractor.extract_service_file(file_path)
              when :component
-               klass = unit_id.constantize rescue nil
+               klass = begin
+                 unit_id.constantize
+               rescue StandardError
+                 nil
+               end
                extractor.extract_component(klass) if klass
              end
 

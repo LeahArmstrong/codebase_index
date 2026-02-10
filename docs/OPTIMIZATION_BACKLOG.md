@@ -2,7 +2,7 @@
 
 ## Context
 
-CodebaseIndex is a runtime-aware Rails codebase extraction system (~2,700 lines across 7 extractors). The extraction layer is complete and well-designed. This review identifies **23 concrete improvements** across performance, security, correctness, and best practices — prioritized by impact.
+CodebaseIndex is a runtime-aware Rails codebase extraction system (~2,700 lines across 7 extractors). The extraction layer is complete and well-designed. This review identifies **29 items** across performance, security, correctness, coverage, and best practices — prioritized by impact. Items #5, #7, #10, #11 are resolved. Item #6 is partially resolved (49 specs exist, extractor-level specs still needed).
 
 ---
 
@@ -48,41 +48,33 @@ Every extractor iterates **all** `ActiveRecord::Base.descendants` for **every** 
 
 ## Critical: Security
 
-### 5. Shell Injection in Git Commands
+### 5. ✅ Shell Injection in Git Commands — RESOLVED
 **File:** `lib/codebase_index/extractor.rb:195-197, 214, 224, 235-238`
+**Resolution:** Backtick git commands replaced with `Open3.capture2` argument arrays. No shell interpretation, no injection risk.
 
-File paths are string-interpolated into backtick shell commands:
-```ruby
-`git log -1 --format=%cI -- "#{relative_path}" 2>/dev/null`
-```
-
-A file path containing `"$(rm -rf /)` or backticks would execute arbitrary commands.
-
-**Fix:** Use `Open3.capture2("git", "log", "-1", ...)` with argument arrays. No shell interpretation, no injection risk.
+~~File paths were string-interpolated into backtick shell commands. A file path containing `"$(rm -rf /)` or backticks would execute arbitrary commands.~~
 
 ---
 
 ## Critical: Missing Fundamentals
 
-### 6. No Test Suite
-**Status:** rspec listed in gemspec but zero spec files exist
+### 6. 🔶 Test Suite — PARTIALLY RESOLVED
+**Status:** 49 specs exist across `spec/extracted_unit_spec.rb`, `spec/dependency_graph_spec.rb`, and `spec/graph_analyzer_spec.rb`. Unit-level coverage for core value objects and graph analysis is in place.
 
-For a gem doing runtime introspection and structured data extraction, tests are essential. Priority test areas:
-- `ExtractedUnit` (serialization, chunking, token estimation)
-- `DependencyGraph` (registration, BFS traversal, serialization round-trip)
-- Individual extractors with fixture classes
+**Remaining:** Extractor-level specs against fixture Rails apps are still needed. Priority areas:
+- Individual extractors with fixture classes (requires a booted Rails environment)
 - Integration test for full extraction pipeline
+- Edge cases: empty files, namespaced classes, STI, concern inlining
 
 ---
 
 ## High: Correctness Bugs
 
-### 7. DependencyGraph Key Mismatch After JSON Round-Trip
-**File:** `lib/codebase_index/dependency_graph.rb:174-181`
+### 7. ✅ DependencyGraph Key Mismatch After JSON Round-Trip — RESOLVED
+**File:** `lib/codebase_index/dependency_graph.rb`
+**Resolution:** `from_h` now uses `symbolize_node` and `transform_keys` to ensure symbol keys after JSON deserialization. `units_of_type(:model)` works correctly after round-trip.
 
-`@type_index` uses symbol keys (`:model`) during extraction, but `from_h` loads string keys from JSON. After saving and reloading, `units_of_type(:model)` returns nothing because keys are `"model"`.
-
-**Fix:** Symbolize keys in `from_h`, or use `with_indifferent_access`.
+~~`@type_index` used symbol keys (`:model`) during extraction, but `from_h` loaded string keys from JSON.~~
 
 ### 8. Incremental Extraction Doesn't Update Index Files
 **File:** `lib/codebase_index/extractor.rb:107-128`
@@ -100,19 +92,17 @@ Model extractor includes `:via` (`:association`, `:code_reference`), but control
 
 ## High: Best Practices
 
-### 10. Bare `rescue` Blocks (17+ instances)
-**Files:** `model_extractor.rb:70,108,116,196,219,231,246,533`, `controller_extractor.rb:106`, `mailer_extractor.rb:72,87,144,166,184`, `phlex_extractor.rb:98,187`, `job_extractor.rb:153`
+### 10. ✅ Bare `rescue` Blocks — RESOLVED
+**Files:** All extractors
+**Resolution:** All bare `rescue` blocks changed to `rescue StandardError`. Critical exceptions (`SystemExit`, `SignalException`, `NoMemoryError`) now propagate correctly.
 
-Bare `rescue` catches `Exception` (including `SystemExit`, `SignalException`, `NoMemoryError`). This can mask critical failures and prevent clean shutdowns.
+~~17+ instances of bare `rescue` across all extractors caught `Exception`, masking critical failures.~~
 
-**Fix:** Use `rescue StandardError => e` or specific exception classes everywhere.
+### 11. ✅ Repeated `eager_load!` Calls — RESOLVED
+**Files:** `lib/codebase_index/extractor.rb` (orchestrator), all extractors
+**Resolution:** `Rails.application.eager_load!` consolidated to the orchestrator. No longer called redundantly by each individual extractor.
 
-### 11. Repeated `eager_load!` Calls
-**Files:** `model_extractor.rb:29`, `controller_extractor.rb:28`, `mailer_extractor.rb:26`, `phlex_extractor.rb:39`, `job_extractor.rb:52`
-
-Called 5 times when the orchestrator runs all extractors sequentially. Redundant after the first call but adds startup overhead.
-
-**Fix:** Call `Rails.application.eager_load!` once in the Extractor orchestrator, before running individual extractors. Add a guard in each extractor for standalone use.
+~~Called 5 times when the orchestrator ran all extractors sequentially.~~
 
 ---
 
@@ -213,23 +203,65 @@ The `case` statement for re-extraction only handles `:model`, `:controller`, `:s
 
 ---
 
+## New: Extraction Coverage Gaps
+
+### 24. No Serializer/Decorator Extractor
+No extractor exists for serializer or decorator patterns. ActiveModelSerializers, Blueprinter, and Draper are widely used in Rails apps to shape API responses and presentation logic. These are first-class Rails concepts that the dependency graph should capture.
+
+**Fix:** Add a `SerializerExtractor` covering ActiveModelSerializers (`ApplicationSerializer` descendants), Blueprinter (`Blueprinter::Base` descendants), and Draper (`Draper::Decorator` descendants). Detect which gems are loaded and extract accordingly.
+
+### 25. No ViewComponent Extractor
+Only Phlex view components are extracted. ViewComponent (`ViewComponent::Base`) is more widely adopted in the Rails ecosystem and should be supported alongside Phlex.
+
+**Fix:** Add a `ViewComponentExtractor` or extend `PhlexExtractor` to also handle `ViewComponent::Base` descendants. Extract component slots, template paths, and preview classes.
+
+---
+
+## New: Documentation & Design Drift
+
+### 26. Voyage Code 2 → Code 3 in Doc Examples
+All embedding model references in docs still reference Voyage Code 2. Voyage Code 3 is the current model and should be used in examples, cost calculations, and backend comparisons.
+
+**Fix:** Update all Voyage Code 2 references to Voyage Code 3 across `BACKEND_MATRIX.md`, `RETRIEVAL_ARCHITECTURE.md`, `CONTEXT_AND_CHUNKING.md`, and any other docs referencing embedding models. Verify cost figures are current.
+
+### 27. Scale Assumptions Outdated Throughout Docs
+Docs reference "300+ models" as the scale target, but real-world extraction shows 993 models in a production app. Sizing assumptions, cost projections, and performance targets should reflect actual observed scale.
+
+**Fix:** Audit all docs for scale references and update to reflect 993-model baseline. Recalculate storage estimates, query latency targets, and cost projections accordingly.
+
+---
+
+## New: Retrieval Pipeline Gaps
+
+### 28. RRF Should Replace Ad-Hoc Score Fusion
+`HybridSearch` (as designed in `RETRIEVAL_ARCHITECTURE.md`) uses ad-hoc weighted score fusion to combine vector and keyword results. Reciprocal Rank Fusion (RRF) is a more robust, parameter-free alternative that doesn't require score normalization.
+
+**Fix:** Replace the weighted fusion design with RRF: `score(d) = Σ 1/(k + rank_i(d))` where `k` is typically 60. This eliminates the need to normalize scores across different retrieval backends.
+
+### 29. Cross-Encoder Reranking Missing from Ranking Pipeline
+The retrieval pipeline has no reranking stage. After initial retrieval (vector + keyword), results go directly to context assembly. A cross-encoder reranker between retrieval and assembly would significantly improve precision, especially for code search where bi-encoder similarity is noisy.
+
+**Fix:** Add a reranking stage to the retrieval pipeline design. Candidates: Cohere Rerank, Voyage Reranker, or a cross-encoder model. This should be optional and configurable, consistent with the backend-agnostic principle.
+
+---
+
 ## Recommended Implementation Order
 
-**Batch 1 — High-impact, low-risk:**
-1. Fix bare `rescue` blocks (#10)
+**Batch 1 — High-impact, low-risk (3 remaining):**
+1. ~~Fix bare `rescue` blocks (#10)~~ ✅
 2. Fix `find_unit` O(n) scan (#4)
-3. Fix DependencyGraph key mismatch (#7)
+3. ~~Fix DependencyGraph key mismatch (#7)~~ ✅
 4. Fix missing types in `re_extract_unit` (#23)
 5. Fix incremental index file updates (#8)
 
-**Batch 2 — Performance wins:**
+**Batch 2 — Performance wins (3 remaining):**
 6. Eliminate repeated file reads (#2)
 7. Precompute model names for dependency scanning (#3)
-8. Move `eager_load!` to orchestrator (#11)
+8. ~~Move `eager_load!` to orchestrator (#11)~~ ✅
 9. Cache `git_available?` (#17)
 
-**Batch 3 — Security + git performance:**
-10. Fix shell injection in git commands (#5)
+**Batch 3 — ~~Security +~~ Git performance (1 remaining):**
+10. ~~Fix shell injection in git commands (#5)~~ ✅
 11. Batch git data extraction (#1)
 
 **Batch 4 — Code quality:**
@@ -237,8 +269,20 @@ The `case` statement for re-extraction only handles `:model`, `:controller`, `:s
 13. Reduce `JSON.pretty_generate` overhead (#16)
 14. Fix redundant analysis calls (#15)
 
+**Batch 5 — Extraction coverage:**
+15. Add serializer/decorator extractor (#24)
+16. Add ViewComponent extractor (#25)
+
+**Batch 6 — Retrieval pipeline design:**
+17. Replace ad-hoc score fusion with RRF (#28)
+18. Add cross-encoder reranking stage (#29)
+
+**Batch 7 — Documentation updates:**
+19. Update Voyage Code 2 → Code 3 references (#26)
+20. Update scale assumptions to 993-model baseline (#27)
+
 **Deferred (needs more design):**
-- Test suite (#6) — substantial effort, should be its own initiative
+- Test suite (#6) — partially resolved, extractor-level specs still needed
 - Method boundary detection (#12) — needs gem dependency decision
 - Concurrent extraction (#22) — needs thread-safety audit
 - Token estimation (#21) — needs benchmarking

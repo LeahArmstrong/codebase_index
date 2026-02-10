@@ -29,7 +29,8 @@ lib/
 ├── codebase_index/
 │   ├── extractor.rb               # Orchestrator — coordinates all extractors, builds graph
 │   ├── extracted_unit.rb          # Value object — single code unit (model/controller/service/etc)
-│   ├── dependency_graph.rb        # Directed graph of unit relationships
+│   ├── dependency_graph.rb        # Directed graph of unit relationships + PageRank scoring
+│   ├── graph_analyzer.rb          # Structural analysis — orphans, dead ends, hubs, cycles, bridges
 │   └── extractors/                # One extractor per Rails concept
 │       ├── model_extractor.rb     # ActiveRecord models — inlines concerns, resolves schema
 │       ├── controller_extractor.rb # Controllers — maps routes, resolves filter chains
@@ -37,6 +38,7 @@ lib/
 │       ├── job_extractor.rb       # ActiveJob/Sidekiq workers
 │       ├── mailer_extractor.rb    # ActionMailer classes
 │       ├── phlex_extractor.rb     # Phlex view components
+│       ├── graphql_extractor.rb   # GraphQL types, mutations, queries, subscriptions
 │       └── rails_source_extractor.rb # Framework source from installed gems
 ├── tasks/
 │   └── codebase_index.rake        # Rake task definitions
@@ -50,6 +52,7 @@ docs/                              # Planning & design documents (see docs/READM
 - **ExtractedUnit is the universal currency.** Everything flows through `ExtractedUnit` — extractors produce them, the dependency graph connects them, the indexing pipeline consumes them. Don't bypass this abstraction.
 - **Concerns get inlined.** When extracting a model, all `include`d concerns are resolved and their source is inlined into the unit's source_code. This is the key differentiator from file-level tools.
 - **Dependency graph is bidirectional.** First pass: each extractor records forward dependencies. Second pass: the graph resolves reverse edges (dependents). Both directions matter for retrieval.
+- **PageRank for importance scoring.** `DependencyGraph` computes PageRank over the unit graph to surface high-importance nodes for retrieval ranking. `GraphAnalyzer` provides structural analysis — orphans, dead ends, hubs, cycles, and bridges — for codebase health insights.
 
 ## Code Conventions
 
@@ -60,15 +63,16 @@ docs/                              # Planning & design documents (see docs/READM
 - Use `Rails.root.join()` for paths, never string concatenation
 - JSON output uses string keys, snake_case
 - Token estimation: `(string.length / 4.0).ceil` — rough but consistent
-- Error handling: raise `CodebaseIndex::ExtractionError` for recoverable extraction failures, let unexpected errors propagate
+- Error handling: raise `CodebaseIndex::ExtractionError` for recoverable extraction failures, let unexpected errors propagate. Always `rescue StandardError`, never bare `rescue`.
 
 ## Testing
 
-- RSpec with `rubocop-rspec` enforcement
+- RSpec with `rubocop-rspec` enforcement — 49 specs across `extracted_unit_spec.rb`, `dependency_graph_spec.rb`, `graph_analyzer_spec.rb`
 - Test extractors against fixture Rails apps (small apps with known structure)
 - Every extractor needs tests for: happy path extraction, edge cases (empty files, namespaced classes, STI), concern inlining, dependency detection
 - Test `ExtractedUnit#to_h` serialization round-trips
-- Test `DependencyGraph` for cycle detection and bidirectional edge resolution
+- Test `DependencyGraph` for cycle detection, bidirectional edge resolution, and PageRank computation
+- Test `GraphAnalyzer` for structural detection: orphans, dead ends, hubs, cycles, bridges
 
 ## Planning Documents
 
@@ -89,3 +93,5 @@ Key references by topic:
 - Service discovery scans `app/services`, `app/interactors`, `app/operations`, `app/commands`, `app/use_cases`. If a host app uses a non-standard directory, it won't be found without configuration.
 - The dependency graph can have cycles (A depends on B depends on A). Graph traversal must handle this — see `DependencyGraph#visited` tracking.
 - MySQL and PostgreSQL have different JSON querying, indexing, and CTE syntax. Any database-touching code must handle both. Never write PostgreSQL-only SQL and assume it works.
+- `eager_load!` is called once in the orchestrator (`Extractor`), not in individual extractors. Don't add `Rails.application.eager_load!` calls to extractors.
+- Git commands use `Open3.capture2` (not backticks) to prevent shell injection. Never use backtick-style command execution for external processes.

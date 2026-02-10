@@ -1,5 +1,7 @@
 # frozen_string_literal: true
 
+require "digest"
+
 module CodebaseIndex
   module Extractors
     # ModelExtractor handles ActiveRecord model extraction with:
@@ -26,8 +28,6 @@ module CodebaseIndex
       #
       # @return [Array<ExtractedUnit>] List of model units
       def extract_all
-        Rails.application.eager_load!
-
         ActiveRecord::Base.descendants
           .reject(&:abstract_class?)
           .reject { |m| m.name.nil? } # Skip anonymous classes
@@ -55,7 +55,7 @@ module CodebaseIndex
         unit.chunks = build_chunks(unit) if unit.needs_chunking?
 
         unit
-      rescue => e
+      rescue StandardError => e
         Rails.logger.error("Failed to extract model #{model.name}: #{e.message}")
         nil
       end
@@ -67,7 +67,7 @@ module CodebaseIndex
         # Try to get from method source location
         model.instance_method(:initialize).source_location&.first ||
           Rails.root.join("app/models/#{model.name.underscore}.rb").to_s
-      rescue
+      rescue StandardError
         Rails.root.join("app/models/#{model.name.underscore}.rb").to_s
       end
 
@@ -104,7 +104,7 @@ module CodebaseIndex
             unique = idx.unique ? " (unique)" : ""
             "  #{idx.name}: [#{idx.columns.join(', ')}]#{unique}"
           end
-        rescue
+        rescue StandardError
           []
         end
 
@@ -112,7 +112,7 @@ module CodebaseIndex
           ActiveRecord::Base.connection.foreign_keys(model.table_name).map do |fk|
             "  #{fk.from_table}.#{fk.column} → #{fk.to_table}"
           end
-        rescue
+        rescue StandardError
           []
         end
 
@@ -192,7 +192,7 @@ module CodebaseIndex
           loc = mod.instance_method(method).source_location&.first
           loc&.start_with?(Rails.root.to_s)
         end
-      rescue
+      rescue StandardError
         false
       end
 
@@ -412,39 +412,47 @@ module CodebaseIndex
         chunks = []
 
         # Summary chunk: high-level overview for broad queries
+        summary_content = build_summary_chunk(unit)
         chunks << {
           chunk_type: :summary,
           identifier: "#{unit.identifier}:summary",
-          content: build_summary_chunk(unit),
+          content: summary_content,
+          content_hash: Digest::SHA256.hexdigest(summary_content),
           metadata: { parent: unit.identifier, purpose: :overview }
         }
 
         # Associations chunk
         if unit.metadata[:associations].any?
+          assoc_content = build_associations_chunk(unit)
           chunks << {
             chunk_type: :associations,
             identifier: "#{unit.identifier}:associations",
-            content: build_associations_chunk(unit),
+            content: assoc_content,
+            content_hash: Digest::SHA256.hexdigest(assoc_content),
             metadata: { parent: unit.identifier, purpose: :relationships }
           }
         end
 
         # Callbacks chunk
         if unit.metadata[:callbacks].any?
+          cb_content = build_callbacks_chunk(unit)
           chunks << {
             chunk_type: :callbacks,
             identifier: "#{unit.identifier}:callbacks",
-            content: build_callbacks_chunk(unit),
+            content: cb_content,
+            content_hash: Digest::SHA256.hexdigest(cb_content),
             metadata: { parent: unit.identifier, purpose: :behavior }
           }
         end
 
         # Validations chunk
         if unit.metadata[:validations].any?
+          val_content = build_validations_chunk(unit)
           chunks << {
             chunk_type: :validations,
             identifier: "#{unit.identifier}:validations",
-            content: build_validations_chunk(unit),
+            content: val_content,
+            content_hash: Digest::SHA256.hexdigest(val_content),
             metadata: { parent: unit.identifier, purpose: :constraints }
           }
         end
@@ -530,7 +538,11 @@ module CodebaseIndex
 
       def callback_count(model)
         %i[validation save create update destroy commit rollback].sum do |type|
-          (model.send("_#{type}_callbacks").size rescue 0)
+          begin
+            model.send("_#{type}_callbacks").size
+          rescue StandardError
+            0
+          end
         end
       end
 
