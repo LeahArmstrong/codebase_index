@@ -1,0 +1,16 @@
+[
+  {
+    "identifier": "Post",
+    "file_path": "app/models/post.rb",
+    "namespace": null,
+    "estimated_tokens": 100,
+    "chunk_count": 1
+  },
+  {
+    "identifier": "Comment",
+    "file_path": "app/models/comment.rb",
+    "namespace": null,
+    "estimated_tokens": 120,
+    "chunk_count": 1
+  }
+]

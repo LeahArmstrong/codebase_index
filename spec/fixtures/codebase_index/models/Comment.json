@@ -1,0 +1,27 @@
+{
+  "type": "model",
+  "identifier": "Comment",
+  "file_path": "app/models/comment.rb",
+  "namespace": null,
+  "source_code": "class Comment < ApplicationRecord\n  belongs_to :post\n  validates :body, presence: true\nend\n",
+  "metadata": {
+    "table_name": "comments",
+    "primary_key": "id",
+    "associations": [
+      { "type": "belongs_to", "name": "post", "class_name": "Post" }
+    ],
+    "validations": [
+      { "type": "presence", "attributes": ["body"] }
+    ],
+    "callbacks": [],
+    "scopes": [],
+    "parent_class": "ApplicationRecord"
+  },
+  "dependencies": [
+    { "target": "Post", "type": "association", "via": "belongs_to" }
+  ],
+  "dependents": [],
+  "chunks": [],
+  "extracted_at": "2026-01-15T12:00:00Z",
+  "source_hash": "def456"
+}

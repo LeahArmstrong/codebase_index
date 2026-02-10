@@ -1,0 +1,9 @@
+[
+  {
+    "identifier": "PostsController",
+    "file_path": "app/controllers/posts_controller.rb",
+    "namespace": null,
+    "estimated_tokens": 200,
+    "chunk_count": 1
+  }
+]

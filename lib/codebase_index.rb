@@ -21,8 +21,9 @@
 #     config.include_framework_sources = true
 #   end
 #
+require_relative 'codebase_index/version'
+
 module CodebaseIndex
-  VERSION = '0.1.0'
 
   class Error < StandardError; end
   class ConfigurationError < Error; end

@@ -1,0 +1,34 @@
+#!/usr/bin/env ruby
+# frozen_string_literal: true
+
+# MCP server for querying CodebaseIndex extraction output.
+#
+# Usage:
+#   codebase-index-mcp [INDEX_DIR]
+#   CODEBASE_INDEX_DIR=/path/to/output codebase-index-mcp
+#
+# Reads JSON files from the extraction output directory and exposes
+# them via the Model Context Protocol (stdio transport).
+# Does NOT require Rails — only reads pre-extracted data.
+
+require_relative '../lib/codebase_index/version'
+require_relative '../lib/codebase_index/dependency_graph'
+require_relative '../lib/codebase_index/graph_analyzer'
+require_relative '../lib/codebase_index/mcp/server'
+
+index_dir = ARGV[0] || ENV['CODEBASE_INDEX_DIR'] || Dir.pwd
+
+unless Dir.exist?(index_dir)
+  warn "Error: Index directory does not exist: #{index_dir}"
+  exit 1
+end
+
+unless File.exist?(File.join(index_dir, 'manifest.json'))
+  warn "Error: No manifest.json found in: #{index_dir}"
+  warn 'Run `bundle exec rake codebase_index:extract` in your Rails app first.'
+  exit 1
+end
+
+server = CodebaseIndex::MCP::Server.build(index_dir: index_dir)
+transport = MCP::Server::Transports::StdioTransport.new(server)
+transport.open

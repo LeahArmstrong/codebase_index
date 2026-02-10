@@ -26,13 +26,17 @@ Gem::Specification.new do |spec|
   # Specify which files should be added to the gem
   spec.files = Dir[
     'lib/**/*',
+    'exe/*',
     'LICENSE.txt',
     'README.md',
     'CHANGELOG.md'
   ]
+  spec.bindir = 'exe'
+  spec.executables = ['codebase-index-mcp']
   spec.require_paths = ['lib']
 
   # Runtime dependencies
+  spec.add_dependency 'mcp', '~> 0.6'
   spec.add_dependency 'rails', '>= 6.1'
 
   # Development dependencies

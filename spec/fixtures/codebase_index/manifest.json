@@ -1,0 +1,21 @@
+{
+  "extracted_at": "2026-01-15T12:00:00Z",
+  "rails_version": "8.1.2",
+  "ruby_version": "4.0.1",
+  "counts": {
+    "models": 2,
+    "controllers": 1,
+    "graphql": 0,
+    "components": 0,
+    "view_components": 0,
+    "services": 0,
+    "jobs": 0,
+    "mailers": 0,
+    "serializers": 0,
+    "rails_source": 0
+  },
+  "total_units": 3,
+  "total_chunks": 0,
+  "git_sha": "abc1234",
+  "git_branch": "main"
+}
