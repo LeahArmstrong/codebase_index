@@ -67,7 +67,7 @@ docs/                              # Planning & design documents (see docs/READM
 
 ## Testing
 
-- RSpec with `rubocop-rspec` enforcement — 49 specs across `extracted_unit_spec.rb`, `dependency_graph_spec.rb`, `graph_analyzer_spec.rb`
+- RSpec with `rubocop-rspec` enforcement — 86 specs across `extracted_unit_spec.rb`, `dependency_graph_spec.rb`, `graph_analyzer_spec.rb`, `extractor_spec.rb`, `model_name_cache_spec.rb`
 - Test extractors against fixture Rails apps (small apps with known structure)
 - Every extractor needs tests for: happy path extraction, edge cases (empty files, namespaced classes, STI), concern inlining, dependency detection
 - Test `ExtractedUnit#to_h` serialization round-trips
@@ -98,3 +98,6 @@ Key references by topic:
 - `callback.options` doesn't exist on modern Rails (removed in 4.2) — use `@if`/`@unless` ivars + ActionFilter duck-typing (check for `@actions` ivar as a `Set`) to extract `:only`/`:except` action lists from callbacks.
 - `eager_load!` aborts completely on a single `NameError` (e.g., `app/graphql/` referencing an uninstalled gem). Zeitwerk processes dirs alphabetically, so a failure in `graphql/` prevents `models/` from loading. The gem falls back to per-directory loading via `EXTRACTION_DIRECTORIES` when this happens.
 - `CallbackChain#size` does not exist on any Rails version (7.0–8.1) — `CallbackChain` includes `Enumerable` but never defines `#size`. Use `#count` instead.
+- `git_available?` is memoized — won't detect git becoming available mid-extraction (acceptable tradeoff).
+- Model name scanning uses a precomputed regex via `ModelNameCache` — invalidated per extraction run, not per unit.
+- `extract_dependencies` in all extractors must include `:via` key — see model_extractor for reference values.

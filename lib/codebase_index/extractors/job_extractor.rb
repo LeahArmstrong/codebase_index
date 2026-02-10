@@ -49,11 +49,14 @@ module CodebaseIndex
 
         # Also try class-based discovery for ActiveJob
         if defined?(ApplicationJob)
+          seen = units.map(&:identifier).to_set
           ApplicationJob.descendants.each do |job_class|
-            # Skip if already extracted via file
-            next if units.any? { |u| u.identifier == job_class.name }
+            next if seen.include?(job_class.name)
             unit = extract_job_class(job_class)
-            units << unit if unit
+            if unit
+              units << unit
+              seen << unit.identifier
+            end
           end
         end
 
