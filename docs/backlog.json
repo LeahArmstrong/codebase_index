@@ -1,0 +1,192 @@
+[
+  {
+    "id": "B-001",
+    "title": "EXTRACTORS key mismatch breaks incremental extraction",
+    "severity": "critical",
+    "category": "code-bug",
+    "layer": "extraction",
+    "files": ["lib/codebase_index/extractor.rb"],
+    "description": "EXTRACTORS constant uses plural keys (:models, :controllers) but re_extract_unit looks up by singular type (:model, :controller). Incremental extraction silently fails to find the correct extractor for any unit.",
+    "status": "resolved"
+  },
+  {
+    "id": "B-002",
+    "title": "Missing types in re_extract_unit",
+    "severity": "critical",
+    "category": "code-bug",
+    "layer": "extraction",
+    "files": ["lib/codebase_index/extractor.rb"],
+    "description": "The case statement in re_extract_unit only handles :model, :controller, :service, :component. Missing: :job, :mailer, :graphql_type, :graphql_mutation, :graphql_resolver, :graphql_query, :rails_source.",
+    "status": "resolved"
+  },
+  {
+    "id": "B-003",
+    "title": "API controllers silently omitted from extraction",
+    "severity": "high",
+    "category": "code-bug",
+    "layer": "extraction",
+    "files": ["lib/codebase_index/extractors/controller_extractor.rb"],
+    "description": "Controller discovery uses ApplicationController.descendants, which misses controllers inheriting from ActionController::API. API-only controllers are invisible to extraction.",
+    "status": "resolved"
+  },
+  {
+    "id": "B-004",
+    "title": "Config extractors default missing 4 of 8 types",
+    "severity": "high",
+    "category": "code-bug",
+    "layer": "config",
+    "files": ["lib/codebase_index.rb"],
+    "description": "Default extractors config only lists :models, :controllers, :services, :components. Missing: :jobs, :mailers, :graphql, :rails_source.",
+    "status": "resolved"
+  },
+  {
+    "id": "B-005",
+    "title": "Missing app/graphql/ in incremental file patterns",
+    "severity": "high",
+    "category": "code-bug",
+    "layer": "extraction",
+    "files": ["lib/tasks/codebase_index.rake"],
+    "description": "Incremental rake task scans app/models/, app/controllers/, app/services/, app/components/ but not app/graphql/. GraphQL type changes are never detected.",
+    "status": "resolved"
+  },
+  {
+    "id": "B-006",
+    "title": "Missing eager_load! in incremental path",
+    "severity": "medium",
+    "category": "code-bug",
+    "layer": "extraction",
+    "files": ["lib/codebase_index/extractor.rb"],
+    "description": "Full extraction calls eager_load! but incremental path may skip it, meaning newly-added classes won't be found.",
+    "status": "resolved"
+  },
+  {
+    "id": "B-007",
+    "title": "Token estimation underestimates Ruby code by 15-25%",
+    "severity": "medium",
+    "category": "code-bug",
+    "layer": "extraction",
+    "files": ["lib/codebase_index/extracted_unit.rb"],
+    "description": "The (length / 4.0).ceil heuristic underestimates tokens for Ruby code. Ruby syntax (symbols, do/end, underscored_names) produces more tokens per character than natural language.",
+    "status": "open"
+  },
+  {
+    "id": "B-008",
+    "title": "ViewComponent metadata uses Phlex-specific patterns",
+    "severity": "medium",
+    "category": "code-bug",
+    "layer": "extraction",
+    "files": ["lib/codebase_index/extractors/phlex_extractor.rb"],
+    "description": "Phlex extractor metadata structure is Phlex-specific. A future ViewComponent extractor needs different metadata patterns.",
+    "status": "open"
+  },
+  {
+    "id": "B-009",
+    "title": "Score fusion in hybrid search is ad-hoc, needs RRF",
+    "severity": "medium",
+    "category": "design-gap",
+    "layer": "retrieval",
+    "files": ["docs/RETRIEVAL_ARCHITECTURE.md"],
+    "description": "merge_candidates uses ad-hoc weighted score fusion. Should use Reciprocal Rank Fusion (RRF): score(d) = sum(1/(k + rank_i(d))) where k=60.",
+    "status": "open"
+  },
+  {
+    "id": "B-010",
+    "title": "SQL injection pattern in Pgvector adapter pseudocode",
+    "severity": "medium",
+    "category": "code-bug",
+    "layer": "retrieval",
+    "files": ["docs/RETRIEVAL_ARCHITECTURE.md"],
+    "description": "Pgvector build_where interpolates filter values directly into SQL. Should use parameterized queries.",
+    "status": "open"
+  },
+  {
+    "id": "B-011",
+    "title": "No cross-encoder reranking stage in retrieval pipeline",
+    "severity": "low",
+    "category": "design-gap",
+    "layer": "retrieval",
+    "files": ["docs/RETRIEVAL_ARCHITECTURE.md"],
+    "description": "Pipeline goes from initial ranking to context assembly with no reranking. Cross-encoder reranking would improve precision for code search.",
+    "status": "open"
+  },
+  {
+    "id": "B-012",
+    "title": "Missing chunking for scopes and per-concern source",
+    "severity": "low",
+    "category": "design-gap",
+    "layer": "extraction",
+    "files": ["docs/CONTEXT_AND_CHUNKING.md"],
+    "description": "Scopes and per-concern chunks are specified in chunking strategy but not yet implemented in extraction.",
+    "status": "open"
+  },
+  {
+    "id": "B-013",
+    "title": "Embedding pipeline has no resumability",
+    "severity": "low",
+    "category": "design-gap",
+    "layer": "embedding",
+    "files": ["docs/OPERATIONS.md"],
+    "description": "No checkpoint mechanism for embedding pipeline. Mid-batch failures require starting over.",
+    "status": "open"
+  },
+  {
+    "id": "B-014",
+    "title": "No agent-as-operator design (extraction management, pipeline diagnostics)",
+    "severity": "high",
+    "category": "doc-missing",
+    "layer": "agentic",
+    "files": ["docs/AGENTIC_STRATEGY.md"],
+    "description": "No design for agents running extraction, managing the embedding pipeline, or diagnosing failures. Agents can only consume, not operate.",
+    "status": "open"
+  },
+  {
+    "id": "B-015",
+    "title": "No multi-agent coordination design",
+    "severity": "high",
+    "category": "doc-missing",
+    "layer": "agentic",
+    "files": ["docs/AGENTIC_STRATEGY.md"],
+    "description": "No design for multiple agents working with the same index concurrently. Missing: shared state model, locking, handoff patterns, token budget coordination.",
+    "status": "open"
+  },
+  {
+    "id": "B-016",
+    "title": "No agent self-service and diagnostics design",
+    "severity": "high",
+    "category": "doc-missing",
+    "layer": "agentic",
+    "files": ["docs/AGENTIC_STRATEGY.md"],
+    "description": "No design for agents assessing retrieval quality, reporting gaps, or requesting improvements.",
+    "status": "open"
+  },
+  {
+    "id": "B-017",
+    "title": "Concurrent indexing safety not documented",
+    "severity": "medium",
+    "category": "doc-missing",
+    "layer": "docs",
+    "files": ["docs/OPERATIONS.md"],
+    "description": "No documentation of which operations are safe for concurrent access and which require serialization.",
+    "status": "open"
+  },
+  {
+    "id": "B-018",
+    "title": "Transitive invalidation not bridged between extraction and embedding",
+    "severity": "medium",
+    "category": "doc-missing",
+    "layer": "docs",
+    "files": ["docs/OPERATIONS.md"],
+    "description": "When extraction produces new units, the embedding layer needs notification. No design for this bridge.",
+    "status": "open"
+  },
+  {
+    "id": "B-019",
+    "title": "Agent-driven operations not documented",
+    "severity": "medium",
+    "category": "doc-missing",
+    "layer": "docs",
+    "files": ["docs/OPERATIONS.md"],
+    "description": "No design for how agents trigger and monitor pipeline tasks (extraction, embedding, validation).",
+    "status": "open"
+  }
+]
