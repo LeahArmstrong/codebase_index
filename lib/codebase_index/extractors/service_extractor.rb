@@ -39,7 +39,7 @@ module CodebaseIndex
       # @return [Array<ExtractedUnit>] List of service units
       def extract_all
         @directories.flat_map do |dir|
-          Dir[dir.join("**/*.rb")].filter_map do |file|
+          Dir[dir.join('**/*.rb')].filter_map do |file|
             extract_service_file(file)
           end
         end
@@ -81,17 +81,15 @@ module CodebaseIndex
 
       def extract_class_name(file_path, source)
         # Try to extract from source first (handles nested modules)
-        if source =~ /^\s*class\s+([\w:]+)/
-          return $1
-        end
+        return ::Regexp.last_match(1) if source =~ /^\s*class\s+([\w:]+)/
 
         # Fall back to convention
-        relative_path = file_path.sub(Rails.root.to_s + "/", "")
+        relative_path = file_path.sub(Rails.root.to_s + '/', '')
 
         # app/services/payments/stripe_service.rb -> Payments::StripeService
         relative_path
-          .sub(%r{^app/(services|interactors|operations|commands|use_cases)/}, "")
-          .sub(".rb", "")
+          .sub(%r{^app/(services|interactors|operations|commands|use_cases)/}, '')
+          .sub('.rb', '')
           .camelize
       end
 
@@ -101,8 +99,8 @@ module CodebaseIndex
       end
 
       def extract_namespace(class_name)
-        parts = class_name.split("::")
-        parts.size > 1 ? parts[0..-2].join("::") : nil
+        parts = class_name.split('::')
+        parts.size > 1 ? parts[0..-2].join('::') : nil
       end
 
       # ──────────────────────────────────────────────────────────────────────
@@ -114,10 +112,10 @@ module CodebaseIndex
         entry_points = detect_entry_points(source)
 
         annotation = <<~ANNOTATION
-        # ╔═══════════════════════════════════════════════════════════════════════╗
-        # ║ Service: #{class_name.ljust(60)}║
-        # ║ Entry Points: #{entry_points.join(', ').ljust(55)}║
-        # ╚═══════════════════════════════════════════════════════════════════════╝
+          # ╔═══════════════════════════════════════════════════════════════════════╗
+          # ║ Service: #{class_name.ljust(60)}║
+          # ║ Entry Points: #{entry_points.join(', ').ljust(55)}║
+          # ╚═══════════════════════════════════════════════════════════════════════╝
 
         ANNOTATION
 
@@ -126,19 +124,19 @@ module CodebaseIndex
 
       def detect_entry_points(source)
         points = []
-        points << "call" if source.match?(/def (self\.)?call\b/)
-        points << "perform" if source.match?(/def (self\.)?perform\b/)
-        points << "execute" if source.match?(/def (self\.)?execute\b/)
-        points << "run" if source.match?(/def (self\.)?run\b/)
-        points << "process" if source.match?(/def (self\.)?process\b/)
-        points.empty? ? ["unknown"] : points
+        points << 'call' if source.match?(/def (self\.)?call\b/)
+        points << 'perform' if source.match?(/def (self\.)?perform\b/)
+        points << 'execute' if source.match?(/def (self\.)?execute\b/)
+        points << 'run' if source.match?(/def (self\.)?run\b/)
+        points << 'process' if source.match?(/def (self\.)?process\b/)
+        points.empty? ? ['unknown'] : points
       end
 
       # ──────────────────────────────────────────────────────────────────────
       # Metadata Extraction
       # ──────────────────────────────────────────────────────────────────────
 
-      def extract_metadata(source, class_name, file_path)
+      def extract_metadata(source, _class_name, file_path)
         {
           # Entry points
           public_methods: extract_public_methods(source),
@@ -162,7 +160,7 @@ module CodebaseIndex
           return_type: infer_return_type(source),
 
           # Metrics
-          loc: source.lines.count { |l| l.strip.present? && !l.strip.start_with?("#") },
+          loc: source.lines.count { |l| l.strip.present? && !l.strip.start_with?('#') },
           method_count: source.scan(/def\s+(?:self\.)?\w+/).size,
           complexity: estimate_complexity(source),
 
@@ -179,14 +177,14 @@ module CodebaseIndex
         source.each_line do |line|
           stripped = line.strip
 
-          in_private = true if stripped == "private"
-          in_protected = true if stripped == "protected"
-          in_private = false if stripped == "public"
-          in_protected = false if stripped == "public"
+          in_private = true if stripped == 'private'
+          in_protected = true if stripped == 'protected'
+          in_private = false if stripped == 'public'
+          in_protected = false if stripped == 'public'
 
           if !in_private && !in_protected && stripped =~ /def\s+((?:self\.)?\w+[?!=]?)/
-            method_name = $1
-            methods << method_name unless method_name.start_with?("_")
+            method_name = ::Regexp.last_match(1)
+            methods << method_name unless method_name.start_with?('_')
           end
         end
 
@@ -222,17 +220,13 @@ module CodebaseIndex
 
         source.scan(/attr_(?:reader|accessor)\s+(.+)/) do |match|
           match[0].scan(/:(\w+)/).flatten.each do |attr|
-            if attr.match?(/service|repository|client|adapter|gateway|notifier|mailer/)
-              deps << attr
-            end
+            deps << attr if attr.match?(/service|repository|client|adapter|gateway|notifier|mailer/)
           end
         end
 
         # Also look for initialize assignments
         source.scan(/@(\w+)\s*=\s*(\w+)/) do |ivar, value|
-          if value.match?(/Service|Client|Repository|Adapter|Gateway/)
-            deps << ivar
-          end
+          deps << ivar if value.match?(/Service|Client|Repository|Adapter|Gateway/)
         end
 
         deps.uniq
@@ -250,6 +244,7 @@ module CodebaseIndex
         return :dry_monad if source.match?(/Success\(|Failure\(/)
         return :result_object if source.match?(/Result\.new|OpenStruct\.new/)
         return :boolean if source.match?(/def call.*?(?:true|false)\s*$/m)
+
         :unknown
       end
 

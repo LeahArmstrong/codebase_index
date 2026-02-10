@@ -577,7 +577,7 @@ For agent frameworks that support MCP (Model Context Protocol), CodebaseIndex ex
       }
     },
     {
-      "name": "framework_source",
+      "name": "framework",
       "description": "Version-pinned Rails/gem source",
       "inputSchema": {
         "type": "object",

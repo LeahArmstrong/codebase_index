@@ -115,12 +115,11 @@ Breaks on multi-line lambda bodies, nested blocks, scopes with comments inside, 
 
 **Fix:** Use `model.defined_scopes` (if available in target Rails versions) or parse with AST.
 
-### 14. Concern Detection Heuristic
+### 14. ✅ Concern Detection Heuristic — RESOLVED
 **File:** `model_extractor.rb:176-197`
+**Resolution:** Improved concern detection to check module source location first (cheaper), with method-level checks as fallback. Filters out third-party gem concerns more reliably.
 
-`mod.name.include?("Concerns")` matches any module with "Concerns" in its name, including third-party gems. `defined_in_app?` iterates all instance methods checking source locations (expensive).
-
-**Fix:** Check module source location first (cheaper), then fall back to method-level checks.
+~~`mod.name.include?("Concerns")` matches any module with "Concerns" in its name, including third-party gems. `defined_in_app?` iterates all instance methods checking source locations (expensive).~~
 
 ### 15. ✅ Redundant `extract_public_api`/`extract_dsl_methods` Calls — RESOLVED
 **File:** `lib/codebase_index/extractors/rails_source_extractor.rb`
@@ -156,12 +155,11 @@ Breaks on multi-line lambda bodies, nested blocks, scopes with comments inside, 
 
 ~~`units.any? { |u| u.identifier == job_class.name }` is O(n) per check.~~
 
-### 20. Configuration Validation
+### 20. ✅ Configuration Validation — RESOLVED
 **File:** `lib/codebase_index.rb:35-58`
+**Resolution:** Added `validate!` method with checks for positive integers, valid ranges, and writable paths. Called before extraction runs.
 
-No validation on `max_context_tokens`, `similarity_threshold`, `output_dir`, etc.
-
-**Fix:** Add basic validation in setters (positive integers, valid ranges, writable paths).
+~~No validation on `max_context_tokens`, `similarity_threshold`, `output_dir`, etc.~~
 
 ### 21. Token Estimation Accuracy
 **File:** `lib/codebase_index/extracted_unit.rb:66-69`
@@ -187,43 +185,43 @@ Extractors run sequentially but are independent.
 
 ## New: Extraction Coverage Gaps
 
-### 24. No Serializer/Decorator Extractor
-No extractor exists for serializer or decorator patterns. ActiveModelSerializers, Blueprinter, and Draper are widely used in Rails apps to shape API responses and presentation logic. These are first-class Rails concepts that the dependency graph should capture.
+### 24. ✅ No Serializer/Decorator Extractor — RESOLVED
+**Resolution:** Added `SerializerExtractor` covering ActiveModelSerializers, Blueprinter, Alba, and Draper. Auto-detects loaded gems and extracts accordingly. Includes dependency tracking to underlying models.
 
-**Fix:** Add a `SerializerExtractor` covering ActiveModelSerializers (`ApplicationSerializer` descendants), Blueprinter (`Blueprinter::Base` descendants), and Draper (`Draper::Decorator` descendants). Detect which gems are loaded and extract accordingly.
+~~No extractor exists for serializer or decorator patterns.~~
 
-### 25. No ViewComponent Extractor
-Only Phlex view components are extracted. ViewComponent (`ViewComponent::Base`) is more widely adopted in the Rails ecosystem and should be supported alongside Phlex.
+### 25. ✅ No ViewComponent Extractor — RESOLVED
+**Resolution:** Added `ViewComponentExtractor` for `ViewComponent::Base` descendants. Extracts component slots, template paths, preview classes, and collection support. Registered alongside Phlex extractor.
 
-**Fix:** Add a `ViewComponentExtractor` or extend `PhlexExtractor` to also handle `ViewComponent::Base` descendants. Extract component slots, template paths, and preview classes.
+~~Only Phlex view components are extracted.~~
 
 ---
 
 ## New: Documentation & Design Drift
 
-### 26. Voyage Code 2 → Code 3 in Doc Examples
-All embedding model references in docs still reference Voyage Code 2. Voyage Code 3 is the current model and should be used in examples, cost calculations, and backend comparisons.
+### 26. ✅ Voyage Code 2 → Code 3 in Doc Examples — RESOLVED
+**Resolution:** Updated all docs to lead with Voyage Code 3 (1024 dims, 32K context). Code 2 retained as legacy option where referenced. Cost figures updated across BACKEND_MATRIX.md, RETRIEVAL_ARCHITECTURE.md, and CONTEXT_AND_CHUNKING.md.
 
-**Fix:** Update all Voyage Code 2 references to Voyage Code 3 across `BACKEND_MATRIX.md`, `RETRIEVAL_ARCHITECTURE.md`, `CONTEXT_AND_CHUNKING.md`, and any other docs referencing embedding models. Verify cost figures are current.
+~~All embedding model references in docs still reference Voyage Code 2.~~
 
-### 27. Scale Assumptions Outdated Throughout Docs
-Docs reference "300+ models" as the scale target, but real-world extraction shows 993 models in a production app. Sizing assumptions, cost projections, and performance targets should reflect actual observed scale.
+### 27. ✅ Scale Assumptions Outdated Throughout Docs — RESOLVED
+**Resolution:** Updated prose references from "300" to "993"/"~1,000" across BACKEND_MATRIX.md and other docs. Cost projections recalculated for 1000-unit baseline. Tabular data retained at varying sizes (50-1000) for comparison.
 
-**Fix:** Audit all docs for scale references and update to reflect 993-model baseline. Recalculate storage estimates, query latency targets, and cost projections accordingly.
+~~Docs reference "300+ models" as the scale target.~~
 
 ---
 
 ## New: Retrieval Pipeline Gaps
 
-### 28. RRF Should Replace Ad-Hoc Score Fusion
-`HybridSearch` (as designed in `RETRIEVAL_ARCHITECTURE.md`) uses ad-hoc weighted score fusion to combine vector and keyword results. Reciprocal Rank Fusion (RRF) is a more robust, parameter-free alternative that doesn't require score normalization.
+### 28. ✅ RRF Should Replace Ad-Hoc Score Fusion — RESOLVED
+**Resolution:** Replaced `merge_candidates` in RETRIEVAL_ARCHITECTURE.md with Reciprocal Rank Fusion (RRF) implementation: `score(d) = Σ 1/(k + rank_i(d))` with k=60. Eliminates need for cross-backend score normalization.
 
-**Fix:** Replace the weighted fusion design with RRF: `score(d) = Σ 1/(k + rank_i(d))` where `k` is typically 60. This eliminates the need to normalize scores across different retrieval backends.
+~~`HybridSearch` uses ad-hoc weighted score fusion.~~
 
-### 29. Cross-Encoder Reranking Missing from Ranking Pipeline
-The retrieval pipeline has no reranking stage. After initial retrieval (vector + keyword), results go directly to context assembly. A cross-encoder reranker between retrieval and assembly would significantly improve precision, especially for code search where bi-encoder similarity is noisy.
+### 29. ✅ Cross-Encoder Reranking Missing from Ranking Pipeline — RESOLVED
+**Resolution:** Added cross-encoder reranking section to RETRIEVAL_ARCHITECTURE.md as an optional stage between initial ranking and context assembly. Defined `Reranker::Interface`, documented Cohere Rerank and Voyage Reranker as candidates, with configuration for enabling/disabling.
 
-**Fix:** Add a reranking stage to the retrieval pipeline design. Candidates: Cohere Rerank, Voyage Reranker, or a cross-encoder model. This should be optional and configurable, consistent with the backend-agnostic principle.
+~~The retrieval pipeline has no reranking stage.~~
 
 ---
 
@@ -251,17 +249,19 @@ The retrieval pipeline has no reranking stage. After initial retrieval (vector +
 13. ~~Reduce `JSON.pretty_generate` overhead (#16)~~ ✅ `cab9061`
 14. ~~Fix redundant analysis calls (#15)~~ ✅ `cab9061`
 
-**Batch 5 — Extraction coverage:**
-15. Add serializer/decorator extractor (#24)
-16. Add ViewComponent extractor (#25)
+**Batch 5 — Extraction coverage:** ✅ ALL RESOLVED
+15. ~~Add serializer/decorator extractor (#24)~~ ✅
+16. ~~Add ViewComponent extractor (#25)~~ ✅
 
-**Batch 6 — Retrieval pipeline design:**
-17. Replace ad-hoc score fusion with RRF (#28)
-18. Add cross-encoder reranking stage (#29)
+**Batch 6 — Retrieval pipeline design:** ✅ ALL RESOLVED
+17. ~~Replace ad-hoc score fusion with RRF (#28)~~ ✅
+18. ~~Add cross-encoder reranking stage (#29)~~ ✅
 
-**Batch 7 — Documentation updates:**
-19. Update Voyage Code 2 → Code 3 references (#26)
-20. Update scale assumptions to 993-model baseline (#27)
+**Batch 7 — Documentation & code quality:** ✅ ALL RESOLVED
+19. ~~Update Voyage Code 2 → Code 3 references (#26)~~ ✅
+20. ~~Update scale assumptions to 993-model baseline (#27)~~ ✅
+21. ~~Improve concern detection (#14)~~ ✅
+22. ~~Add configuration validation (#20)~~ ✅
 
 **Deferred (needs more design):**
 - Test suite (#6) — 86 gem + 87 integration specs; extractor-level fixture specs still needed

@@ -23,8 +23,6 @@ module CodebaseIndex
         Phlex::HTML
         Phlex::Component
         ApplicationComponent
-        ViewComponent
-        ViewComponent::Base
       ].freeze
 
       def initialize
@@ -98,12 +96,13 @@ module CodebaseIndex
       end
 
       def extract_namespace(component)
-        parts = component.name.split("::")
-        parts.size > 1 ? parts[0..-2].join("::") : nil
+        parts = component.name.split('::')
+        parts.size > 1 ? parts[0..-2].join('::') : nil
       end
 
       def read_source(file_path)
-        return "" unless file_path && File.exist?(file_path)
+        return '' unless file_path && File.exist?(file_path)
+
         File.read(file_path)
       end
 
@@ -131,12 +130,12 @@ module CodebaseIndex
           renders_one: extract_renders_one(source),
 
           # Metrics
-          loc: source.lines.count { |l| l.strip.present? && !l.strip.start_with?("#") }
+          loc: source.lines.count { |l| l.strip.present? && !l.strip.start_with?('#') }
         }
       end
 
       # Extract slot definitions from Phlex components
-      def extract_slots(component, source)
+      def extract_slots(_component, source)
         slots = []
 
         # Phlex 1.x style: renders_one, renders_many
@@ -197,12 +196,14 @@ module CodebaseIndex
         # Phlex style: render ComponentName.new(...)
         source.scan(/render\s+(\w+(?:::\w+)*)(?:\.new|\()/).flatten.uniq.each do |comp|
           next if comp == component.name # Skip self-references
+
           deps << { type: :component, target: comp, via: :render }
         end
 
         # ViewComponent style: render(ComponentName.new(...))
         source.scan(/render\((\w+(?:::\w+)*)\.new/).flatten.uniq.each do |comp|
           next if comp == component.name
+
           deps << { type: :component, target: comp, via: :render }
         end
 

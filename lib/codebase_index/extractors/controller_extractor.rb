@@ -1,6 +1,6 @@
 # frozen_string_literal: true
 
-require "digest"
+require 'digest'
 
 module CodebaseIndex
   module Extractors
@@ -29,9 +29,7 @@ module CodebaseIndex
       def extract_all
         controllers = ApplicationController.descendants
 
-        if defined?(ActionController::API)
-          controllers = (controllers + ActionController::API.descendants).uniq
-        end
+        controllers = (controllers + ActionController::API.descendants).uniq if defined?(ActionController::API)
 
         controllers.map do |controller|
           extract_controller(controller)
@@ -50,7 +48,7 @@ module CodebaseIndex
         )
 
         source_path = unit.file_path
-        source = source_path && File.exist?(source_path) ? File.read(source_path) : ""
+        source = source_path && File.exist?(source_path) ? File.read(source_path) : ''
 
         unit.namespace = extract_namespace(controller)
         unit.source_code = build_composite_source(controller, source)
@@ -87,7 +85,7 @@ module CodebaseIndex
           routes[controller][action] ||= []
           routes[controller][action] << {
             verb: extract_verb(route),
-            path: route.path.spec.to_s.gsub("(.:format)", ""),
+            path: route.path.spec.to_s.gsub('(.:format)', ''),
             name: route.name,
             constraints: route.constraints.except(:request_method)
           }
@@ -99,7 +97,8 @@ module CodebaseIndex
       def extract_verb(route)
         verb = route.verb
         return verb if verb.is_a?(String)
-        return verb.source.gsub(/[\^\$]/, "") if verb.respond_to?(:source)
+        return verb.source.gsub(/[\^$]/, '') if verb.respond_to?(:source)
+
         verb.to_s
       end
 
@@ -118,15 +117,15 @@ module CodebaseIndex
       end
 
       def extract_namespace(controller)
-        parts = controller.name.split("::")
-        parts.size > 1 ? parts[0..-2].join("::") : nil
+        parts = controller.name.split('::')
+        parts.size > 1 ? parts[0..-2].join('::') : nil
       end
 
       # Build composite source with routes and filters as headers
       def build_composite_source(controller, source = nil)
         if source.nil?
           source_path = source_file_for(controller)
-          return "" unless source_path && File.exist?(source_path)
+          return '' unless source_path && File.exist?(source_path)
 
           source = File.read(source_path)
         end
@@ -142,7 +141,7 @@ module CodebaseIndex
 
       def build_routes_comment(controller)
         routes = @routes_map[controller.name] || {}
-        return "" if routes.empty?
+        return '' if routes.empty?
 
         lines = routes.flat_map do |action, route_list|
           route_list.map do |info|
@@ -153,18 +152,18 @@ module CodebaseIndex
         end
 
         <<~ROUTES
-        # ╔═══════════════════════════════════════════════════════════════════════╗
-        # ║ Routes                                                                 ║
-        # ╚═══════════════════════════════════════════════════════════════════════╝
-        #
-        #{lines.map { |l| "# #{l}" }.join("\n")}
-        #
+          # ╔═══════════════════════════════════════════════════════════════════════╗
+          # ║ Routes                                                                 ║
+          # ╚═══════════════════════════════════════════════════════════════════════╝
+          #
+          #{lines.map { |l| "# #{l}" }.join("\n")}
+          #
         ROUTES
       end
 
       def build_filters_comment(controller)
         filters = extract_filter_chain(controller)
-        return "" if filters.empty?
+        return '' if filters.empty?
 
         lines = filters.map do |f|
           opts = []
@@ -172,17 +171,17 @@ module CodebaseIndex
           opts << "except: [#{f[:except].map { |a| ":#{a}" }.join(', ')}]" if f[:except]&.any?
           opts << "if: #{f[:if]}" if f[:if]
 
-          opts_str = opts.any? ? " (#{opts.join('; ')})" : ""
+          opts_str = opts.any? ? " (#{opts.join('; ')})" : ''
           "  #{f[:kind].to_s.ljust(8)} :#{f[:filter]}#{opts_str}"
         end
 
         <<~FILTERS
-        # ╔═══════════════════════════════════════════════════════════════════════╗
-        # ║ Filter Chain                                                           ║
-        # ╚═══════════════════════════════════════════════════════════════════════╝
-        #
-        #{lines.map { |l| "# #{l}" }.join("\n")}
-        #
+          # ╔═══════════════════════════════════════════════════════════════════════╗
+          # ║ Filter Chain                                                           ║
+          # ╚═══════════════════════════════════════════════════════════════════════╝
+          #
+          #{lines.map { |l| "# #{l}" }.join("\n")}
+          #
         FILTERS
       end
 
@@ -193,8 +192,8 @@ module CodebaseIndex
           result = { kind: callback.kind, filter: callback.filter }
           result[:only] = only if only.any?
           result[:except] = except if except.any?
-          result[:if] = if_conds.join(", ") if if_conds.any?
-          result[:unless] = unless_conds.join(", ") if unless_conds.any?
+          result[:if] = if_conds.join(', ') if if_conds.any?
+          result[:unless] = unless_conds.join(', ') if unless_conds.any?
           result
         end
       end
@@ -259,7 +258,7 @@ module CodebaseIndex
       def condition_label(condition)
         case condition
         when Symbol then ":#{condition}"
-        when Proc then "Proc"
+        when Proc then 'Proc'
         when String then condition
         else condition.class.name
         end
@@ -283,10 +282,10 @@ module CodebaseIndex
 
           # Parent chain for understanding inherited behavior
           ancestors: controller.ancestors
-                              .take_while { |a| a != ActionController::Base && a != ActionController::API }
-                              .select { |a| a.is_a?(Class) }
-                              .map(&:name)
-                              .compact,
+                     .take_while { |a| a != ActionController::Base && a != ActionController::API }
+                     .select { |a| a.is_a?(Class) }
+                     .map(&:name)
+                     .compact,
 
           # Concerns included
           included_concerns: extract_included_concerns(controller),
@@ -305,7 +304,7 @@ module CodebaseIndex
 
       def extract_included_concerns(controller)
         controller.included_modules
-                  .select { |m| m.name&.include?("Concern") || m.name&.include?("Concerns") }
+                  .select { |m| m.name&.include?('Concern') || m.name&.include?('Concerns') }
                   .map(&:name)
       end
 
@@ -319,10 +318,10 @@ module CodebaseIndex
 
         formats = []
 
-        formats << :html if source.include?("respond_to do") || !source.include?("respond_to")
-        formats << :json if source.include?(":json") || source.include?("render json:")
-        formats << :xml if source.include?(":xml") || source.include?("render xml:")
-        formats << :turbo_stream if source.include?("turbo_stream")
+        formats << :html if source.include?('respond_to do') || !source.include?('respond_to')
+        formats << :json if source.include?(':json') || source.include?('render json:')
+        formats << :xml if source.include?(':xml') || source.include?('render xml:')
+        formats << :turbo_stream if source.include?('turbo_stream')
 
         formats.uniq
       end
@@ -357,9 +356,7 @@ module CodebaseIndex
 
         if source.nil?
           source_path = source_file_for(controller)
-          if source_path && File.exist?(source_path)
-            source = File.read(source_path)
-          end
+          source = File.read(source_path) if source_path && File.exist?(source_path)
         end
 
         if source
@@ -379,7 +376,7 @@ module CodebaseIndex
           end
 
           # Other view renders
-          source.scan(/render\s+["'](\w+\/\w+)["']/).flatten.uniq.each do |template|
+          source.scan(%r{render\s+["'](\w+/\w+)["']}).flatten.uniq.each do |template|
             deps << { type: :view, target: template, via: :render }
           end
 
@@ -412,18 +409,18 @@ module CodebaseIndex
           next if action_source.nil? || action_source.strip.empty?
 
           route_desc = if route_info&.any?
-            route_info.map { |r| "#{r[:verb]} #{r[:path]}" }.join(", ")
-          else
-            "No direct route"
-          end
+                         route_info.map { |r| "#{r[:verb]} #{r[:path]}" }.join(', ')
+                       else
+                         'No direct route'
+                       end
 
           chunk_content = <<~ACTION
-          # Controller: #{controller.name}
-          # Action: #{action}
-          # Route: #{route_desc}
-          # Filters: #{filters.map { |f| "#{f[:kind]}(:#{f[:filter]})" }.join(", ").presence || "none"}
+            # Controller: #{controller.name}
+            # Action: #{action}
+            # Route: #{route_desc}
+            # Filters: #{filters.map { |f| "#{f[:kind]}(:#{f[:filter]})" }.join(', ').presence || 'none'}
 
-          #{action_source}
+            #{action_source}
           ACTION
 
           {
@@ -512,9 +509,7 @@ module CodebaseIndex
           end
 
           # Line at same or lesser indent that isn't a continuation
-          if current_indent <= indent && current_line.strip != ""
-            break
-          end
+          break if current_indent <= indent && current_line.strip != ''
 
           end_line += 1
         end

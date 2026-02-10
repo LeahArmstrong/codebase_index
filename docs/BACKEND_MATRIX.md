@@ -279,7 +279,7 @@ config.vector_store = :sqlite_faiss
 
 **Dimensions:** 1024 (Code 3) / 1536 (Code 2)
 **Max tokens:** 32000 (Code 3) / 16000 (Code 2)
-**Cost:** ~$0.06 per 1M tokens (code-2)
+**Cost:** ~$0.06 per 1M tokens (verify current pricing for Code 3)
 **Latency:** ~120ms single
 
 **Strengths:** Specifically trained on code. Code 3's 32K context window means even very large units can be embedded without truncation. Code 3 uses 1024 dimensions (smaller vectors, less storage) while maintaining strong retrieval quality. Benchmarks show strong performance on code retrieval tasks.
@@ -767,7 +767,7 @@ Assumptions: average unit produces ~400 tokens of embeddable text. Hierarchical 
 | 500 units | ~1,250 | ~562K | $0.011 | $0.073 | $0.034 | $0 |
 | 1000 units | ~2,500 | ~1.1M | $0.022 | $0.146 | $0.068 | $0 |
 
-A full index of a 300-unit codebase costs less than a penny with OpenAI's small model. Target scale is larger: a production Rails app may have ~993 models and 2000+ total units when including controllers, services, jobs, GraphQL types, and mailers. Even at that scale, embedding cost is not the bottleneck.
+A full index of a 1000-unit codebase costs about two cents with OpenAI's small model. A production Rails app may have ~993 models and 2000+ total units when including controllers, services, jobs, GraphQL types, and mailers. Even at that scale, embedding cost is not the bottleneck.
 
 ### Incremental Re-embedding Cost
 
@@ -780,7 +780,7 @@ With chunk checksumming (only re-embed changed chunks), a typical merge touches 
 | Monthly (200 merges) | ~1.1M | $0.022 | $0.143 | $0.066 |
 | Yearly (2400 merges) | ~13M | $0.26 | $1.69 | $0.78 |
 
-Even with aggressive per-merge re-indexing, the yearly embedding cost for a 300-unit codebase is under $2 with OpenAI's small model. At the target scale of 2000+ units, multiply these figures by ~7x — still well under $15/year.
+Even with aggressive per-merge re-indexing, the yearly embedding cost for a 1000-unit codebase is under $2 with OpenAI's small model. At the target scale of 2000+ units, multiply these figures by ~2x — still well under $5/year.
 
 ### Query-Time Embedding Cost
 

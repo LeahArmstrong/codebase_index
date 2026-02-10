@@ -1,8 +1,8 @@
 # frozen_string_literal: true
 
-require "spec_helper"
-require "set"
-require "codebase_index/extractors/controller_extractor"
+require 'spec_helper'
+require 'set'
+require 'codebase_index/extractors/controller_extractor'
 
 RSpec.describe CodebaseIndex::Extractors::ControllerExtractor do
   # ── Test doubles ──────────────────────────────────────────────────────
@@ -31,16 +31,16 @@ RSpec.describe CodebaseIndex::Extractors::ControllerExtractor do
   # We test the private helpers by sending them through a fresh instance.
   # The extractor needs Rails.application.routes to initialize, so we stub that.
   let(:extractor) do
-    routes_double = double("Routes", routes: [])
-    app_double = double("Application", routes: routes_double)
-    stub_const("Rails", double("Rails", application: app_double))
+    routes_double = double('Routes', routes: [])
+    app_double = double('Application', routes: routes_double)
+    stub_const('Rails', double('Rails', application: app_double))
     described_class.new
   end
 
   # ── extract_callback_conditions ──────────────────────────────────────
 
-  describe "#extract_callback_conditions" do
-    it "extracts :only actions from @if ActionFilter" do
+  describe '#extract_callback_conditions' do
+    it 'extracts :only actions from @if ActionFilter' do
       filter = build_action_filter(%w[create update])
       callback = build_callback(kind: :before, filter: :authenticate!, if_conditions: [filter])
 
@@ -52,7 +52,7 @@ RSpec.describe CodebaseIndex::Extractors::ControllerExtractor do
       expect(unless_labels).to be_empty
     end
 
-    it "extracts :except actions from @unless ActionFilter" do
+    it 'extracts :except actions from @unless ActionFilter' do
       filter = build_action_filter(%w[index show])
       callback = build_callback(kind: :before, filter: :require_login, unless_conditions: [filter])
 
@@ -64,7 +64,7 @@ RSpec.describe CodebaseIndex::Extractors::ControllerExtractor do
       expect(unless_labels).to be_empty
     end
 
-    it "handles mixed ActionFilter and proc conditions" do
+    it 'handles mixed ActionFilter and proc conditions' do
       action_filter = build_action_filter(%w[destroy])
       proc_condition = proc { true }
       callback = build_callback(
@@ -72,13 +72,13 @@ RSpec.describe CodebaseIndex::Extractors::ControllerExtractor do
         if_conditions: [action_filter, proc_condition]
       )
 
-      only, except, if_labels, _unless_labels = extractor.send(:extract_callback_conditions, callback)
+      only, _, if_labels, _unless_labels = extractor.send(:extract_callback_conditions, callback)
 
       expect(only).to eq(%w[destroy])
-      expect(if_labels).to eq(["Proc"])
+      expect(if_labels).to eq(['Proc'])
     end
 
-    it "handles callbacks with no conditions" do
+    it 'handles callbacks with no conditions' do
       callback = build_callback(kind: :before, filter: :set_locale)
 
       only, except, if_labels, unless_labels = extractor.send(:extract_callback_conditions, callback)
@@ -89,64 +89,64 @@ RSpec.describe CodebaseIndex::Extractors::ControllerExtractor do
       expect(unless_labels).to be_empty
     end
 
-    it "handles symbol conditions" do
+    it 'handles symbol conditions' do
       callback = build_callback(kind: :before, filter: :check_role, if_conditions: [:admin?])
 
       _only, _except, if_labels, _unless_labels = extractor.send(:extract_callback_conditions, callback)
 
-      expect(if_labels).to eq([":admin?"])
+      expect(if_labels).to eq([':admin?'])
     end
   end
 
   # ── callback_applies_to_action? ──────────────────────────────────────
 
-  describe "#callback_applies_to_action?" do
-    it "returns true when action is in :only list" do
+  describe '#callback_applies_to_action?' do
+    it 'returns true when action is in :only list' do
       filter = build_action_filter(%w[create update])
       callback = build_callback(kind: :before, filter: :auth, if_conditions: [filter])
 
-      expect(extractor.send(:callback_applies_to_action?, callback, "create")).to be true
+      expect(extractor.send(:callback_applies_to_action?, callback, 'create')).to be true
     end
 
-    it "returns false when action is NOT in :only list" do
+    it 'returns false when action is NOT in :only list' do
       filter = build_action_filter(%w[create update])
       callback = build_callback(kind: :before, filter: :auth, if_conditions: [filter])
 
-      expect(extractor.send(:callback_applies_to_action?, callback, "index")).to be false
+      expect(extractor.send(:callback_applies_to_action?, callback, 'index')).to be false
     end
 
-    it "returns false when action is in :except list" do
+    it 'returns false when action is in :except list' do
       filter = build_action_filter(%w[index show])
       callback = build_callback(kind: :before, filter: :auth, unless_conditions: [filter])
 
-      expect(extractor.send(:callback_applies_to_action?, callback, "index")).to be false
+      expect(extractor.send(:callback_applies_to_action?, callback, 'index')).to be false
     end
 
-    it "returns true when action is NOT in :except list" do
+    it 'returns true when action is NOT in :except list' do
       filter = build_action_filter(%w[index show])
       callback = build_callback(kind: :before, filter: :auth, unless_conditions: [filter])
 
-      expect(extractor.send(:callback_applies_to_action?, callback, "create")).to be true
+      expect(extractor.send(:callback_applies_to_action?, callback, 'create')).to be true
     end
 
-    it "returns true when no conditions present (applies to all)" do
+    it 'returns true when no conditions present (applies to all)' do
       callback = build_callback(kind: :before, filter: :set_locale)
 
-      expect(extractor.send(:callback_applies_to_action?, callback, "anything")).to be true
+      expect(extractor.send(:callback_applies_to_action?, callback, 'anything')).to be true
     end
 
-    it "skips non-ActionFilter conditions (assumes true)" do
+    it 'skips non-ActionFilter conditions (assumes true)' do
       proc_condition = proc { true }
       callback = build_callback(kind: :before, filter: :check, if_conditions: [proc_condition])
 
-      expect(extractor.send(:callback_applies_to_action?, callback, "index")).to be true
+      expect(extractor.send(:callback_applies_to_action?, callback, 'index')).to be true
     end
   end
 
   # ── extract_action_filter_actions ────────────────────────────────────
 
-  describe "#extract_action_filter_actions" do
-    it "returns action names from an ActionFilter" do
+  describe '#extract_action_filter_actions' do
+    it 'returns action names from an ActionFilter' do
       filter = build_action_filter(%w[show edit])
 
       result = extractor.send(:extract_action_filter_actions, filter)
@@ -154,19 +154,19 @@ RSpec.describe CodebaseIndex::Extractors::ControllerExtractor do
       expect(result).to match_array(%w[show edit])
     end
 
-    it "returns nil for a plain proc" do
+    it 'returns nil for a plain proc' do
       result = extractor.send(:extract_action_filter_actions, proc { true })
       expect(result).to be_nil
     end
 
-    it "returns nil for a symbol" do
+    it 'returns nil for a symbol' do
       result = extractor.send(:extract_action_filter_actions, :admin?)
       expect(result).to be_nil
     end
 
-    it "returns nil if @actions is not a Set" do
+    it 'returns nil if @actions is not a Set' do
       obj = Object.new
-      obj.instance_variable_set(:@actions, "not a set")
+      obj.instance_variable_set(:@actions, 'not a set')
 
       result = extractor.send(:extract_action_filter_actions, obj)
       expect(result).to be_nil
@@ -175,24 +175,24 @@ RSpec.describe CodebaseIndex::Extractors::ControllerExtractor do
 
   # ── condition_label ──────────────────────────────────────────────────
 
-  describe "#condition_label" do
-    it "labels symbols with colon prefix" do
-      expect(extractor.send(:condition_label, :admin?)).to eq(":admin?")
+  describe '#condition_label' do
+    it 'labels symbols with colon prefix' do
+      expect(extractor.send(:condition_label, :admin?)).to eq(':admin?')
     end
 
     it "labels procs as 'Proc'" do
-      expect(extractor.send(:condition_label, proc { true })).to eq("Proc")
+      expect(extractor.send(:condition_label, proc { true })).to eq('Proc')
     end
 
-    it "labels strings as themselves" do
-      expect(extractor.send(:condition_label, "user_signed_in?")).to eq("user_signed_in?")
+    it 'labels strings as themselves' do
+      expect(extractor.send(:condition_label, 'user_signed_in?')).to eq('user_signed_in?')
     end
   end
 
   # ── extract_filter_chain (integration) ───────────────────────────────
 
-  describe "#extract_filter_chain" do
-    it "builds filter chain from mocked controller callbacks" do
+  describe '#extract_filter_chain' do
+    it 'builds filter chain from mocked controller callbacks' do
       only_filter = build_action_filter(%w[create update])
       except_filter = build_action_filter(%w[index])
 
@@ -202,7 +202,7 @@ RSpec.describe CodebaseIndex::Extractors::ControllerExtractor do
         build_callback(kind: :after, filter: :track_action, unless_conditions: [except_filter])
       ]
 
-      controller = double("Controller", _process_action_callbacks: callbacks)
+      controller = double('Controller', _process_action_callbacks: callbacks)
 
       chain = extractor.send(:extract_filter_chain, controller)
 

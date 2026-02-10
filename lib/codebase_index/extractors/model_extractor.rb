@@ -1,6 +1,6 @@
 # frozen_string_literal: true
 
-require "digest"
+require 'digest'
 
 module CodebaseIndex
   module Extractors
@@ -29,10 +29,10 @@ module CodebaseIndex
       # @return [Array<ExtractedUnit>] List of model units
       def extract_all
         ActiveRecord::Base.descendants
-          .reject(&:abstract_class?)
-          .reject { |m| m.name.nil? } # Skip anonymous classes
-          .map { |model| extract_model(model) }
-          .compact
+                          .reject(&:abstract_class?)
+                          .reject { |m| m.name.nil? } # Skip anonymous classes
+                          .map { |model| extract_model(model) }
+                          .compact
       end
 
       # Extract a single model
@@ -65,13 +65,29 @@ module CodebaseIndex
 
       private
 
-      # Find the source file for a model, handling STI and namespacing
+      # Find the source file for a model, handling STI and namespacing.
+      #
+      # Falls back to convention-based path when reflection points outside
+      # the app (e.g., ActiveRecord::Core#initialize for models that don't
+      # override initialize).
       def source_file_for(model)
-        # Try to get from method source location
-        model.instance_method(:initialize).source_location&.first ||
-          Rails.root.join("app/models/#{model.name.underscore}.rb").to_s
+        app_root = Rails.root.to_s
+        convention_path = Rails.root.join("app/models/#{model.name.underscore}.rb").to_s
+
+        # Try instance methods defined directly on this model first
+        model.instance_methods(false).each do |method_name|
+          loc = model.instance_method(method_name).source_location&.first
+          return loc if loc&.start_with?(app_root)
+        end
+
+        # Fall back to convention if the file exists
+        return convention_path if File.exist?(convention_path)
+
+        # Last resort: any method's source location (even inherited)
+        loc = model.instance_method(:initialize).source_location&.first
+        loc&.start_with?(app_root) ? loc : convention_path
       rescue StandardError
-        Rails.root.join("app/models/#{model.name.underscore}.rb").to_s
+        convention_path
       end
 
       # Build composite source with schema header and inlined concerns
@@ -95,16 +111,16 @@ module CodebaseIndex
           type_info = col.type.to_s
           type_info += "(#{col.limit})" if col.limit
           constraints = []
-          constraints << "NOT NULL" unless col.null
+          constraints << 'NOT NULL' unless col.null
           constraints << "DEFAULT #{col.default.inspect}" if col.default
-          constraints << "PRIMARY KEY" if col.name == model.primary_key
+          constraints << 'PRIMARY KEY' if col.name == model.primary_key
 
           "  #{col.name.ljust(25)} #{type_info.ljust(15)} #{constraints.join(' ')}"
         end
 
         indexes = begin
           ActiveRecord::Base.connection.indexes(model.table_name).map do |idx|
-            unique = idx.unique ? " (unique)" : ""
+            unique = idx.unique ? ' (unique)' : ''
             "  #{idx.name}: [#{idx.columns.join(', ')}]#{unique}"
           end
         rescue StandardError
@@ -120,22 +136,22 @@ module CodebaseIndex
         end
 
         parts = []
-        parts << "# == Schema Information"
-        parts << "#"
+        parts << '# == Schema Information'
+        parts << '#'
         parts << "# Table: #{model.table_name}"
-        parts << "#"
-        parts << "# Columns:"
+        parts << '#'
+        parts << '# Columns:'
         parts.concat(columns.map { |c| "# #{c}" })
-        parts << "#"
+        parts << '#'
 
         if indexes.any?
-          parts << "# Indexes:"
+          parts << '# Indexes:'
           parts.concat(indexes.map { |i| "# #{i}" })
-          parts << "#"
+          parts << '#'
         end
 
         if foreign_keys.any?
-          parts << "# Foreign Keys:"
+          parts << '# Foreign Keys:'
           parts.concat(foreign_keys.map { |f| "# #{f}" })
         end
 
@@ -146,7 +162,7 @@ module CodebaseIndex
       def build_model_source_with_concerns(model, source = nil)
         if source.nil?
           source_path = source_file_for(model)
-          return "" unless source_path && File.exist?(source_path)
+          return '' unless source_path && File.exist?(source_path)
 
           source = File.read(source_path)
         end
@@ -160,17 +176,17 @@ module CodebaseIndex
           concern_block = concern_sources.map do |name, code|
             indented = code.lines.map { |l| "  # #{l.rstrip}" }.join("\n")
             <<~CONCERN
-            # ┌─────────────────────────────────────────────────────────────────────┐
-            # │ Included from: #{name.ljust(54)}│
-            # └─────────────────────────────────────────────────────────────────────┘
-            #{indented}
-            # ─────────────────────────── End #{name} ───────────────────────────
+              # ┌─────────────────────────────────────────────────────────────────────┐
+              # │ Included from: #{name.ljust(54)}│
+              # └─────────────────────────────────────────────────────────────────────┘
+              #{indented}
+              # ─────────────────────────── End #{name} ───────────────────────────
             CONCERN
           end.join("\n\n")
 
           # Insert after class declaration line
           source.sub(/(class\s+#{Regexp.escape(model.name.demodulize)}.*$)/) do
-            "#{$1}\n\n#{concern_block}"
+            "#{::Regexp.last_match(1)}\n\n#{concern_block}"
           end
         else
           source
@@ -179,11 +195,18 @@ module CodebaseIndex
 
       # Get modules included specifically in this model (not inherited)
       def extract_included_modules(model)
+        app_root = Rails.root.to_s
         model.included_modules.select do |mod|
           next false unless mod.name
 
+          # Skip obvious non-app modules (from gems/stdlib)
+          if Object.respond_to?(:const_source_location)
+            loc = Object.const_source_location(mod.name)
+            next false if loc && !loc.first&.start_with?(app_root)
+          end
+
           # Include if it's in app/models/concerns or app/controllers/concerns
-          mod.name.include?("Concerns") ||
+          mod.name.include?('Concerns') ||
             # Or if it's namespaced under the model's parent
             mod.name.start_with?("#{model.module_parent}::") ||
             # Or if it's defined within the application
@@ -192,7 +215,17 @@ module CodebaseIndex
       end
 
       # Check if a module is defined within the Rails application
+      #
+      # @param mod [Module] The module to check
+      # @return [Boolean] true if the module is defined within Rails.root
       def defined_in_app?(mod)
+        # Fast path: const_source_location is cheaper than iterating methods
+        if mod.respond_to?(:const_source_location) || Object.respond_to?(:const_source_location)
+          loc = Object.const_source_location(mod.name)
+          return loc.first.start_with?(Rails.root.to_s) if loc
+        end
+
+        # Slow path: check instance method source locations
         mod.instance_methods(false).any? do |method|
           loc = mod.instance_method(method).source_location&.first
           loc&.start_with?(Rails.root.to_s)
@@ -292,7 +325,7 @@ module CodebaseIndex
           validators.map do |v|
             {
               attribute: attribute,
-              type: v.class.name.demodulize.underscore.sub(/_validator$/, ""),
+              type: v.class.name.demodulize.underscore.sub(/_validator$/, ''),
               options: v.options.except(:if, :unless, :on),
               conditions: {
                 if: v.options[:if],
@@ -318,24 +351,22 @@ module CodebaseIndex
         ]
 
         callback_types.flat_map do |type|
-          begin
-            callbacks = model.send("_#{type}_callbacks")
-            callbacks.map do |cb|
-              {
-                type: type,
-                filter: cb.filter.to_s,
-                kind: cb.kind, # :before, :after, :around
-                options: {
-                  if: cb.options[:if],
-                  unless: cb.options[:unless],
-                  on: cb.options[:on],
-                  prepend: cb.options[:prepend]
-                }.compact
-              }
-            end
-          rescue NoMethodError
-            []
+          callbacks = model.send("_#{type}_callbacks")
+          callbacks.map do |cb|
+            {
+              type: type,
+              filter: cb.filter.to_s,
+              kind: cb.kind, # :before, :after, :around
+              options: {
+                if: cb.options[:if],
+                unless: cb.options[:unless],
+                on: cb.options[:on],
+                prepend: cb.options[:prepend]
+              }.compact
+            }
           end
+        rescue NoMethodError
+          []
         end.compact
       end
 
@@ -352,7 +383,7 @@ module CodebaseIndex
 
         # Match scope definitions
         source.scan(/scope\s+:(\w+)(?:,\s*->.*?(?:do|{).*?(?:end|})|,\s*->.*$)/m) do |match|
-          scopes << { name: match[0], source: $& }
+          scopes << { name: match[0], source: ::Regexp.last_match(0) }
         end
 
         scopes
@@ -361,6 +392,7 @@ module CodebaseIndex
       # Extract enum definitions
       def extract_enums(model)
         return {} unless model.respond_to?(:defined_enums)
+
         model.defined_enums.transform_values(&:to_h)
       end
 
@@ -380,9 +412,7 @@ module CodebaseIndex
         # Parse source for service/mailer/job references
         if source.nil?
           source_path = source_file_for(model)
-          if source_path && File.exist?(source_path)
-            source = File.read(source_path)
-          end
+          source = File.read(source_path) if source_path && File.exist?(source_path)
         end
 
         if source
@@ -404,6 +434,7 @@ module CodebaseIndex
           # Other models (direct references in code, not already captured via association)
           source.scan(ModelNameCache.model_names_regex).uniq.each do |model_name|
             next if model_name == model.name
+
             unless deps.any? { |d| d[:target] == model_name }
               deps << { type: :model, target: model_name, via: :code_reference }
             end
@@ -474,22 +505,22 @@ module CodebaseIndex
         meta = unit.metadata
 
         <<~SUMMARY
-        # #{unit.identifier} - Model Summary
+          # #{unit.identifier} - Model Summary
 
-        Table: #{meta[:table_name]}
-        Primary Key: #{meta[:primary_key]}
-        Columns: #{meta[:column_names].join(', ')}
+          Table: #{meta[:table_name]}
+          Primary Key: #{meta[:primary_key]}
+          Columns: #{meta[:column_names].join(', ')}
 
-        ## Associations (#{meta[:associations].size})
-        #{meta[:associations].map { |a| "- #{a[:type]} :#{a[:name]} → #{a[:target]}" }.join("\n")}
+          ## Associations (#{meta[:associations].size})
+          #{meta[:associations].map { |a| "- #{a[:type]} :#{a[:name]} → #{a[:target]}" }.join("\n")}
 
-        ## Key Behaviors
-        - Callbacks: #{meta[:callback_count]}
-        - Validations: #{meta[:validation_count]}
-        - Scopes: #{meta[:scopes].size}
+          ## Key Behaviors
+          - Callbacks: #{meta[:callback_count]}
+          - Validations: #{meta[:validation_count]}
+          - Scopes: #{meta[:scopes].size}
 
-        ## Instance Methods
-        #{meta[:instance_methods].first(10).join(', ')}#{"..." if meta[:instance_methods].size > 10}
+          ## Instance Methods
+          #{meta[:instance_methods].first(10).join(', ')}#{'...' if meta[:instance_methods].size > 10}
         SUMMARY
       end
 
@@ -497,14 +528,14 @@ module CodebaseIndex
         meta = unit.metadata
 
         lines = meta[:associations].map do |a|
-          opts = a[:options].map { |k, v| "#{k}: #{v}" }.join(", ")
+          opts = a[:options].map { |k, v| "#{k}: #{v}" }.join(', ')
           "#{a[:type]} :#{a[:name]}, class: #{a[:target]}#{", #{opts}" unless opts.empty?}"
         end
 
         <<~ASSOC
-        # #{unit.identifier} - Associations
+          # #{unit.identifier} - Associations
 
-        #{lines.join("\n")}
+          #{lines.join("\n")}
         ASSOC
       end
 
@@ -514,14 +545,14 @@ module CodebaseIndex
         grouped = meta[:callbacks].group_by { |c| c[:type] }
 
         sections = grouped.map do |type, callbacks|
-          filters = callbacks.map { |c| c[:filter] }.join(", ")
+          filters = callbacks.map { |c| c[:filter] }.join(', ')
           "#{type}: #{filters}"
         end
 
         <<~CALLBACKS
-        # #{unit.identifier} - Callbacks
+          # #{unit.identifier} - Callbacks
 
-        #{sections.join("\n")}
+          #{sections.join("\n")}
         CALLBACKS
       end
 
@@ -531,14 +562,14 @@ module CodebaseIndex
         grouped = meta[:validations].group_by { |v| v[:attribute] }
 
         sections = grouped.map do |attr, validations|
-          types = validations.map { |v| v[:type] }.join(", ")
+          types = validations.map { |v| v[:type] }.join(', ')
           "#{attr}: #{types}"
         end
 
         <<~VALIDATIONS
-        # #{unit.identifier} - Validations
+          # #{unit.identifier} - Validations
 
-        #{sections.join("\n")}
+          #{sections.join("\n")}
         VALIDATIONS
       end
 
@@ -548,22 +579,20 @@ module CodebaseIndex
 
       def callback_count(model)
         %i[validation save create update destroy commit rollback].sum do |type|
-          begin
-            model.send("_#{type}_callbacks").size
-          rescue StandardError
-            0
-          end
+          model.send("_#{type}_callbacks").size
+        rescue StandardError
+          0
         end
       end
 
       def count_loc(model, source = nil)
         if source
-          source.lines.count { |l| l.strip.present? && !l.strip.start_with?("#") }
+          source.lines.count { |l| l.strip.present? && !l.strip.start_with?('#') }
         else
           path = source_file_for(model)
           return 0 unless path && File.exist?(path)
 
-          File.readlines(path).count { |l| l.strip.present? && !l.strip.start_with?("#") }
+          File.readlines(path).count { |l| l.strip.present? && !l.strip.start_with?('#') }
         end
       end
     end

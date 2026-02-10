@@ -44,7 +44,7 @@ module CodebaseIndex
         names = model_names
         return /(?!)/ if names.empty? # never-matching regex
 
-        /\b(?:#{names.map { |n| Regexp.escape(n) }.join("|")})\b/
+        /\b(?:#{names.map { |n| Regexp.escape(n) }.join('|')})\b/
       end
     end
   end

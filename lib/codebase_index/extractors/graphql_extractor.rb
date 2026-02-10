@@ -26,7 +26,7 @@ module CodebaseIndex
     #
     class GraphQLExtractor
       # Standard directory for graphql-ruby applications
-      GRAPHQL_DIRECTORY = "app/graphql"
+      GRAPHQL_DIRECTORY = 'app/graphql'
 
       # Token threshold for chunking large types
       CHUNK_THRESHOLD = 1500
@@ -63,7 +63,7 @@ module CodebaseIndex
 
         # Second pass: file-based discovery (catches everything)
         if @graphql_dir&.directory?
-          Dir[@graphql_dir.join("**/*.rb")].each do |file_path|
+          Dir[@graphql_dir.join('**/*.rb')].each do |file_path|
             unit = extract_graphql_file(file_path)
             next unless unit
             next if seen_identifiers.include?(unit.identifier)
@@ -132,7 +132,7 @@ module CodebaseIndex
         return nil unless defined?(GraphQL::Schema)
 
         GraphQL::Schema.descendants.find do |klass|
-          klass.name && !klass.name.start_with?("GraphQL::")
+          klass.name && !klass.name.start_with?('GraphQL::')
         end
       rescue StandardError
         nil
@@ -147,7 +147,7 @@ module CodebaseIndex
         types = {}
         @schema_class.types.each do |name, type_class|
           # Skip built-in introspection types
-          next if name.start_with?("__")
+          next if name.start_with?('__')
           next unless type_class.respond_to?(:name) && type_class.name
 
           types[name] = type_class
@@ -169,10 +169,10 @@ module CodebaseIndex
       def extract_from_runtime_type(type_class)
         return nil unless type_class.respond_to?(:name) && type_class.name
         # Skip anonymous or internal graphql-ruby classes
-        return nil if type_class.name.start_with?("GraphQL::")
+        return nil if type_class.name.start_with?('GraphQL::')
 
         file_path = source_file_for_class(type_class)
-        source = file_path && File.exist?(file_path) ? File.read(file_path) : ""
+        source = file_path && File.exist?(file_path) ? File.read(file_path) : ''
         unit_type = classify_runtime_type(type_class)
 
         unit = ExtractedUnit.new(
@@ -261,21 +261,15 @@ module CodebaseIndex
       # @param source [String]
       # @return [Symbol]
       def classify_unit_type(file_path, source)
-        return :graphql_mutation if file_path.include?("/mutations/")
-        return :graphql_resolver if file_path.include?("/resolvers/")
+        return :graphql_mutation if file_path.include?('/mutations/')
+        return :graphql_resolver if file_path.include?('/resolvers/')
 
-        if source.match?(/< (GraphQL::Schema::Mutation|Mutations::Base|BaseMutation)/)
-          return :graphql_mutation
-        end
+        return :graphql_mutation if source.match?(/< (GraphQL::Schema::Mutation|Mutations::Base|BaseMutation)/)
 
-        if source.match?(/< (GraphQL::Schema::Resolver|Resolvers::Base|BaseResolver)/)
-          return :graphql_resolver
-        end
+        return :graphql_resolver if source.match?(/< (GraphQL::Schema::Resolver|Resolvers::Base|BaseResolver)/)
 
         # Query type is usually the root query object
-        if file_path.match?(/query_type\.rb$/) || source.match?(/class QueryType\b/)
-          return :graphql_query
-        end
+        return :graphql_query if file_path.match?(/query_type\.rb$/) || source.match?(/class QueryType\b/)
 
         :graphql_type
       end
@@ -289,7 +283,7 @@ module CodebaseIndex
           source.match?(/< (Types::Base\w+|Base(Type|InputObject|Enum|Union|Scalar|Mutation|Resolver|Interface))/) ||
           source.match?(/< (Mutations::Base|Resolvers::Base)/) ||
           source.match?(/include GraphQL::Schema::Interface/) ||
-          (source.include?("field :") && source.match?(/< .*Type\b/))
+          (source.include?('field :') && source.match?(/< .*Type\b/))
       end
 
       # ──────────────────────────────────────────────────────────────────────
@@ -307,19 +301,17 @@ module CodebaseIndex
         return nil if modules.empty?
 
         # If first token is a fully-qualified name, use it directly
-        if modules.first.include?("::")
-          return modules.first
-        end
+        return modules.first if modules.first.include?('::')
 
         # Otherwise join the nesting
-        modules.join("::")
+        modules.join('::')
       rescue StandardError
         # Fall back to convention from file path
         return nil unless defined?(Rails)
 
         file_path
-          .sub(Rails.root.join(GRAPHQL_DIRECTORY).to_s + "/", "")
-          .sub(".rb", "")
+          .sub(Rails.root.join(GRAPHQL_DIRECTORY).to_s + '/', '')
+          .sub('.rb', '')
           .camelize
       end
 
@@ -328,8 +320,8 @@ module CodebaseIndex
       # @param class_name [String]
       # @return [String, nil]
       def extract_namespace(class_name)
-        parts = class_name.split("::")
-        parts.size > 1 ? parts[0..-2].join("::") : nil
+        parts = class_name.split('::')
+        parts.size > 1 ? parts[0..-2].join('::') : nil
       end
 
       # ──────────────────────────────────────────────────────────────────────
@@ -350,12 +342,12 @@ module CodebaseIndex
         type_label = format_type_label(unit_type)
 
         <<~ANNOTATION
-        # ╔═══════════════════════════════════════════════════════════════════════╗
-        # ║ #{type_label}: #{class_name.ljust(71 - type_label.length - 4)}║
-        # ║ Fields: #{field_count.to_s.ljust(4)} | Arguments: #{argument_count.to_s.ljust(42)}║
-        # ╚═══════════════════════════════════════════════════════════════════════╝
+          # ╔═══════════════════════════════════════════════════════════════════════╗
+          # ║ #{type_label}: #{class_name.ljust(71 - type_label.length - 4)}║
+          # ║ Fields: #{field_count.to_s.ljust(4)} | Arguments: #{argument_count.to_s.ljust(42)}║
+          # ╚═══════════════════════════════════════════════════════════════════════╝
 
-        #{source}
+          #{source}
         ANNOTATION
       end
 
@@ -365,10 +357,10 @@ module CodebaseIndex
       # @return [String]
       def format_type_label(unit_type)
         case unit_type
-        when :graphql_mutation then "GraphQL Mutation"
-        when :graphql_query then "GraphQL Query"
-        when :graphql_resolver then "GraphQL Resolver"
-        else "GraphQL Type"
+        when :graphql_mutation then 'GraphQL Mutation'
+        when :graphql_query then 'GraphQL Query'
+        when :graphql_resolver then 'GraphQL Resolver'
+        else 'GraphQL Type'
         end
       end
 
@@ -383,7 +375,7 @@ module CodebaseIndex
       # @param unit_type [Symbol]
       # @param runtime_class [Class, nil]
       # @return [Hash]
-      def build_metadata(source, class_name, unit_type, runtime_class)
+      def build_metadata(source, _class_name, _unit_type, runtime_class)
         {
           # GraphQL classification
           graphql_kind: detect_graphql_kind(source, runtime_class),
@@ -415,7 +407,7 @@ module CodebaseIndex
           # Metrics
           field_count: count_fields(source, runtime_class),
           argument_count: count_arguments(source, runtime_class),
-          loc: source.lines.count { |l| l.strip.length > 0 && !l.strip.start_with?("#") }
+          loc: source.lines.count { |l| l.strip.length > 0 && !l.strip.start_with?('#') }
         }
       end
 
@@ -432,7 +424,9 @@ module CodebaseIndex
           return :scalar if defined?(GraphQL::Schema::Scalar) && runtime_class < GraphQL::Schema::Scalar
           return :mutation if defined?(GraphQL::Schema::Mutation) && runtime_class < GraphQL::Schema::Mutation
           return :resolver if defined?(GraphQL::Schema::Resolver) && runtime_class < GraphQL::Schema::Resolver
-          return :interface if runtime_class.is_a?(Module) && defined?(GraphQL::Schema::Interface) && runtime_class.respond_to?(:included_modules) && runtime_class.included_modules.any? { |m| m.name&.include?("GraphQL::Schema::Interface") }
+          return :interface if runtime_class.is_a?(Module) && defined?(GraphQL::Schema::Interface) && runtime_class.respond_to?(:included_modules) && runtime_class.included_modules.any? do |m|
+            m.name&.include?('GraphQL::Schema::Interface')
+          end
           return :object if defined?(GraphQL::Schema::Object) && runtime_class < GraphQL::Schema::Object
         end
 
@@ -497,19 +491,15 @@ module CodebaseIndex
           end
 
           # Resolver class
-          if field.respond_to?(:resolver) && field.resolver
-            field_hash[:resolver_class] = field.resolver.name
-          end
+          field_hash[:resolver_class] = field.resolver.name if field.respond_to?(:resolver) && field.resolver
 
           # Complexity
-          if field.respond_to?(:complexity) && field.complexity
-            field_hash[:complexity] = field.complexity
-          end
+          field_hash[:complexity] = field.complexity if field.respond_to?(:complexity) && field.complexity
 
           field_hash
         end
       rescue StandardError
-        extract_fields_from_source("")
+        extract_fields_from_source('')
       end
 
       # Check if a field is nullable
@@ -534,7 +524,7 @@ module CodebaseIndex
           field_hash = { name: name, type: type }
 
           if rest
-            field_hash[:null] = rest.include?("null: false") ? false : true
+            field_hash[:null] = rest.include?('null: false') ? false : true
             desc_match = rest.match(/description:\s*["']([^"']+)["']/)
             field_hash[:description] = desc_match[1] if desc_match
             resolver_match = rest.match(/resolver:\s*([\w:]+)/)
@@ -589,7 +579,7 @@ module CodebaseIndex
           arg_hash = { name: name, type: type }
 
           if rest
-            arg_hash[:required] = rest.include?("required: true")
+            arg_hash[:required] = rest.include?('required: true')
             desc_match = rest.match(/description:\s*["']([^"']+)["']/)
             arg_hash[:description] = desc_match[1] if desc_match
           end
@@ -651,7 +641,7 @@ module CodebaseIndex
         auth = {}
 
         auth[:has_authorized_method] = source.match?(/def\s+(?:self\.)?authorized\?/) || false
-        auth[:pundit] = source.match?(/PolicyFinder|policy_class|authorize[!]?\s/) || false
+        auth[:pundit] = source.match?(/PolicyFinder|policy_class|authorize!?\s/) || false
         auth[:cancan] = source.match?(/can\?|authorize!\s|CanCan|Ability/) || false
         auth[:custom_guard] = source.match?(/def\s+(?:self\.)?(?:visible\?|scope_items|ready\?)/) || false
 
@@ -671,7 +661,7 @@ module CodebaseIndex
 
         # Max complexity on schema level
         if source.match?(/max_complexity\s+(\d+)/)
-          complexities << { field: :schema, complexity: $1.to_i }
+          complexities << { field: :schema, complexity: ::Regexp.last_match(1).to_i }
         end
 
         complexities
@@ -784,7 +774,9 @@ module CodebaseIndex
         # used in resolver method bodies — pattern: constant on its own or with method chain
         source.scan(/\b([A-Z][a-z][a-zA-Z]*)\b/).flatten.uniq.each do |const_ref|
           # Skip known non-model constants
-          next if const_ref.match?(/\A(Types|Mutations|Resolvers|GraphQL|Base|String|Integer|Float|Boolean|Array|Hash|Set|Struct|Module|Class|Object|ID|Int|ISO8601)\z/)
+          if const_ref.match?(/\A(Types|Mutations|Resolvers|GraphQL|Base|String|Integer|Float|Boolean|Array|Hash|Set|Struct|Module|Class|Object|ID|Int|ISO8601)\z/)
+            next
+          end
           next if deps.any? { |d| d[:target] == const_ref }
 
           # Only include if used in a way that suggests model access
@@ -825,7 +817,7 @@ module CodebaseIndex
       # @param unit [ExtractedUnit]
       # @param runtime_class [Class, nil]
       # @return [Array<Hash>]
-      def build_chunks(unit, runtime_class)
+      def build_chunks(unit, _runtime_class)
         chunks = []
 
         # Summary chunk: overview with field list
@@ -841,9 +833,7 @@ module CodebaseIndex
 
         # Arguments chunk for mutations/resolvers
         arguments = unit.metadata[:arguments] || []
-        if arguments.any?
-          chunks << build_arguments_chunk(unit, arguments)
-        end
+        chunks << build_arguments_chunk(unit, arguments) if arguments.any?
 
         chunks
       end
@@ -861,21 +851,21 @@ module CodebaseIndex
         auth = meta[:authorization] || {}
 
         auth_summary = []
-        auth_summary << "authorized?" if auth[:has_authorized_method]
-        auth_summary << "pundit" if auth[:pundit]
-        auth_summary << "cancan" if auth[:cancan]
+        auth_summary << 'authorized?' if auth[:has_authorized_method]
+        auth_summary << 'pundit' if auth[:pundit]
+        auth_summary << 'cancan' if auth[:cancan]
 
         {
           chunk_type: :summary,
           identifier: "#{unit.identifier}:summary",
           content: <<~SUMMARY,
-          # #{unit.identifier} - #{format_type_label(unit.type)} Summary
+            # #{unit.identifier} - #{format_type_label(unit.type)} Summary
 
-          Kind: #{meta[:graphql_kind]}
-          Parent: #{meta[:parent_class] || 'unknown'}
-          Fields: #{field_names.join(', ').presence || 'none'}
-          Interfaces: #{interfaces.join(', ').presence || 'none'}
-          Authorization: #{auth_summary.join(', ').presence || 'none'}
+            Kind: #{meta[:graphql_kind]}
+            Parent: #{meta[:parent_class] || 'unknown'}
+            Fields: #{field_names.join(', ').presence || 'none'}
+            Interfaces: #{interfaces.join(', ').presence || 'none'}
+            Authorization: #{auth_summary.join(', ').presence || 'none'}
           SUMMARY
           metadata: { parent: unit.identifier, purpose: :overview }
         }
@@ -892,16 +882,16 @@ module CodebaseIndex
           parts = ["field :#{f[:name]}"]
           parts << f[:type] if f[:type]
           parts << "(#{f[:description]})" if f[:description]
-          parts.join(", ")
+          parts.join(', ')
         end
 
         {
           chunk_type: :fields,
           identifier: "#{unit.identifier}:fields_#{group_index}",
           content: <<~FIELDS,
-          # #{unit.identifier} - Fields (group #{group_index})
+            # #{unit.identifier} - Fields (group #{group_index})
 
-          #{lines.join("\n")}
+            #{lines.join("\n")}
           FIELDS
           metadata: { parent: unit.identifier, purpose: :fields, group_index: group_index }
         }
@@ -916,18 +906,18 @@ module CodebaseIndex
         lines = arguments.map do |a|
           parts = ["argument :#{a[:name]}"]
           parts << a[:type] if a[:type]
-          parts << "required" if a[:required]
+          parts << 'required' if a[:required]
           parts << "(#{a[:description]})" if a[:description]
-          parts.join(", ")
+          parts.join(', ')
         end
 
         {
           chunk_type: :arguments,
           identifier: "#{unit.identifier}:arguments",
           content: <<~ARGS,
-          # #{unit.identifier} - Arguments
+            # #{unit.identifier} - Arguments
 
-          #{lines.join("\n")}
+            #{lines.join("\n")}
           ARGS
           metadata: { parent: unit.identifier, purpose: :arguments }
         }

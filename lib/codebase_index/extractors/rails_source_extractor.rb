@@ -19,88 +19,88 @@ module CodebaseIndex
     class RailsSourceExtractor
       # High-value Rails paths to index
       RAILS_PATHS = {
-        "activerecord" => [
-          "lib/active_record/associations",
-          "lib/active_record/callbacks.rb",
-          "lib/active_record/validations",
-          "lib/active_record/relation",
-          "lib/active_record/querying.rb",
-          "lib/active_record/scoping",
-          "lib/active_record/transactions.rb",
-          "lib/active_record/persistence.rb",
-          "lib/active_record/attribute_methods",
-          "lib/active_record/enum.rb",
-          "lib/active_record/store.rb",
-          "lib/active_record/nested_attributes.rb"
+        'activerecord' => [
+          'lib/active_record/associations',
+          'lib/active_record/callbacks.rb',
+          'lib/active_record/validations',
+          'lib/active_record/relation',
+          'lib/active_record/querying.rb',
+          'lib/active_record/scoping',
+          'lib/active_record/transactions.rb',
+          'lib/active_record/persistence.rb',
+          'lib/active_record/attribute_methods',
+          'lib/active_record/enum.rb',
+          'lib/active_record/store.rb',
+          'lib/active_record/nested_attributes.rb'
         ],
-        "actionpack" => [
-          "lib/action_controller/metal",
-          "lib/action_controller/callbacks.rb",
-          "lib/abstract_controller/callbacks.rb",
-          "lib/action_controller/rendering.rb",
-          "lib/action_controller/redirecting.rb",
-          "lib/action_controller/params_wrapper.rb"
+        'actionpack' => [
+          'lib/action_controller/metal',
+          'lib/action_controller/callbacks.rb',
+          'lib/abstract_controller/callbacks.rb',
+          'lib/action_controller/rendering.rb',
+          'lib/action_controller/redirecting.rb',
+          'lib/action_controller/params_wrapper.rb'
         ],
-        "activesupport" => [
-          "lib/active_support/callbacks.rb",
-          "lib/active_support/concern.rb",
-          "lib/active_support/configurable.rb",
-          "lib/active_support/core_ext/module/delegation.rb",
-          "lib/active_support/core_ext/object/inclusion.rb"
+        'activesupport' => [
+          'lib/active_support/callbacks.rb',
+          'lib/active_support/concern.rb',
+          'lib/active_support/configurable.rb',
+          'lib/active_support/core_ext/module/delegation.rb',
+          'lib/active_support/core_ext/object/inclusion.rb'
         ],
-        "activejob" => [
-          "lib/active_job/callbacks.rb",
-          "lib/active_job/enqueuing.rb",
-          "lib/active_job/execution.rb",
-          "lib/active_job/exceptions.rb"
+        'activejob' => [
+          'lib/active_job/callbacks.rb',
+          'lib/active_job/enqueuing.rb',
+          'lib/active_job/execution.rb',
+          'lib/active_job/exceptions.rb'
         ],
-        "actionmailer" => [
-          "lib/action_mailer/base.rb",
-          "lib/action_mailer/delivery_methods.rb",
-          "lib/action_mailer/callbacks.rb"
+        'actionmailer' => [
+          'lib/action_mailer/base.rb',
+          'lib/action_mailer/delivery_methods.rb',
+          'lib/action_mailer/callbacks.rb'
         ]
       }.freeze
 
       # Common gems worth indexing (configure based on project)
       GEM_CONFIGS = {
-        "devise" => {
-          paths: ["lib/devise/models", "lib/devise/controllers", "lib/devise/strategies"],
+        'devise' => {
+          paths: ['lib/devise/models', 'lib/devise/controllers', 'lib/devise/strategies'],
           priority: :high
         },
-        "pundit" => {
-          paths: ["lib/pundit.rb", "lib/pundit"],
+        'pundit' => {
+          paths: ['lib/pundit.rb', 'lib/pundit'],
           priority: :high
         },
-        "sidekiq" => {
-          paths: ["lib/sidekiq/worker.rb", "lib/sidekiq/job.rb", "lib/sidekiq/client.rb"],
+        'sidekiq' => {
+          paths: ['lib/sidekiq/worker.rb', 'lib/sidekiq/job.rb', 'lib/sidekiq/client.rb'],
           priority: :high
         },
-        "activeadmin" => {
-          paths: ["lib/active_admin/dsl.rb", "lib/active_admin/resource_dsl.rb"],
+        'activeadmin' => {
+          paths: ['lib/active_admin/dsl.rb', 'lib/active_admin/resource_dsl.rb'],
           priority: :medium
         },
-        "cancancan" => {
-          paths: ["lib/cancan/ability.rb", "lib/cancan/controller_additions.rb"],
+        'cancancan' => {
+          paths: ['lib/cancan/ability.rb', 'lib/cancan/controller_additions.rb'],
           priority: :high
         },
-        "friendly_id" => {
-          paths: ["lib/friendly_id"],
+        'friendly_id' => {
+          paths: ['lib/friendly_id'],
           priority: :medium
         },
-        "paper_trail" => {
-          paths: ["lib/paper_trail/has_paper_trail.rb", "lib/paper_trail/model_config.rb"],
+        'paper_trail' => {
+          paths: ['lib/paper_trail/has_paper_trail.rb', 'lib/paper_trail/model_config.rb'],
           priority: :medium
         },
-        "aasm" => {
-          paths: ["lib/aasm"],
+        'aasm' => {
+          paths: ['lib/aasm'],
           priority: :high
         },
-        "phlex" => {
-          paths: ["lib/phlex"],
+        'phlex' => {
+          paths: ['lib/phlex'],
           priority: :high
         },
-        "dry-monads" => {
-          paths: ["lib/dry/monads"],
+        'dry-monads' => {
+          paths: ['lib/dry/monads'],
           priority: :medium
         }
       }.freeze
@@ -141,7 +141,7 @@ module CodebaseIndex
             full_path = gem_path.join(relative_path)
 
             if full_path.directory?
-              Dir[full_path.join("**/*.rb")].each do |file|
+              Dir[full_path.join('**/*.rb')].each do |file|
                 unit = extract_framework_file(gem_name, file)
                 units << unit if unit
               end
@@ -173,7 +173,7 @@ module CodebaseIndex
             full_path = gem_path.join(relative_path)
 
             if full_path.directory?
-              Dir[full_path.join("**/*.rb")].each do |file|
+              Dir[full_path.join('**/*.rb')].each do |file|
                 unit = extract_gem_file(gem_name, config[:priority], file)
                 units << unit if unit
               end
@@ -203,7 +203,7 @@ module CodebaseIndex
       def gem_version(gem_name)
         Gem::Specification.find_by_name(gem_name).version.to_s
       rescue StandardError
-        "unknown"
+        'unknown'
       end
 
       # ──────────────────────────────────────────────────────────────────────
@@ -212,7 +212,7 @@ module CodebaseIndex
 
       def extract_framework_file(component, file_path)
         source = File.read(file_path)
-        relative = file_path.sub(%r{.*/gems/[^/]+/}, "")
+        relative = file_path.sub(%r{.*/gems/[^/]+/}, '')
 
         # Create a meaningful identifier
         identifier = "rails/#{component}/#{relative}"
@@ -255,7 +255,7 @@ module CodebaseIndex
 
       def extract_gem_file(gem_name, priority, file_path)
         source = File.read(file_path)
-        relative = file_path.sub(%r{.*/gems/[^/]+/}, "")
+        relative = file_path.sub(%r{.*/gems/[^/]+/}, '')
 
         identifier = "gems/#{gem_name}/#{relative}"
 
@@ -293,25 +293,25 @@ module CodebaseIndex
 
       def annotate_framework_source(source, component, relative)
         <<~ANNOTATION
-        # ╔═══════════════════════════════════════════════════════════════════════╗
-        # ║ Rails #{@rails_version} - #{component.ljust(55)}║
-        # ║ File: #{relative.ljust(62)}║
-        # ╚═══════════════════════════════════════════════════════════════════════╝
+          # ╔═══════════════════════════════════════════════════════════════════════╗
+          # ║ Rails #{@rails_version} - #{component.ljust(55)}║
+          # ║ File: #{relative.ljust(62)}║
+          # ╚═══════════════════════════════════════════════════════════════════════╝
 
-        #{source}
+          #{source}
         ANNOTATION
       end
 
       def annotate_gem_source(source, gem_name, relative)
-        version = @gem_versions[gem_name] || "unknown"
+        version = @gem_versions[gem_name] || 'unknown'
 
         <<~ANNOTATION
-        # ╔═══════════════════════════════════════════════════════════════════════╗
-        # ║ Gem: #{gem_name} v#{version.ljust(55 - gem_name.length)}║
-        # ║ File: #{relative.ljust(62)}║
-        # ╚═══════════════════════════════════════════════════════════════════════╝
+          # ╔═══════════════════════════════════════════════════════════════════════╗
+          # ║ Gem: #{gem_name} v#{version.ljust(55 - gem_name.length)}║
+          # ║ File: #{relative.ljust(62)}║
+          # ╚═══════════════════════════════════════════════════════════════════════╝
 
-        #{source}
+          #{source}
         ANNOTATION
       end
 
@@ -337,17 +337,17 @@ module CodebaseIndex
           in_private = true if stripped.match?(/^\s*private\s*$/)
           in_private = false if stripped.match?(/^\s*public\s*$/)
 
-          if !in_private && stripped =~ /def\s+((?:self\.)?\w+[?!=]?)(\(.*?\))?/
-            method_name = $1
-            signature = $2
-            next if method_name.start_with?("_")
+          next unless !in_private && stripped =~ /def\s+((?:self\.)?\w+[?!=]?)(\(.*?\))?/
 
-            methods << {
-              name: method_name,
-              signature: signature,
-              class_method: method_name.start_with?("self.")
-            }
-          end
+          method_name = ::Regexp.last_match(1)
+          signature = ::Regexp.last_match(2)
+          next if method_name.start_with?('_')
+
+          methods << {
+            name: method_name,
+            signature: signature,
+            class_method: method_name.start_with?('self.')
+          }
         end
 
         methods
@@ -396,7 +396,7 @@ module CodebaseIndex
       # Determine if this is a public API file worth prioritizing
       def public_api_file?(relative_path)
         public_patterns = [
-          /associations\/builder/,
+          %r{associations/builder},
           /callbacks\.rb$/,
           /validations\.rb$/,
           /base\.rb$/,
@@ -422,7 +422,7 @@ module CodebaseIndex
         score += 2 if dsl.any?
 
         # Files with option documentation
-        score += 1 if source.include?("# Options:")
+        score += 1 if source.include?('# Options:')
 
         case score
         when 0..2 then :low
@@ -446,9 +446,7 @@ module CodebaseIndex
 
         # ActiveSupport::Concern pattern
         source.scan(/extend\s+ActiveSupport::Concern.*?module\s+ClassMethods/m) do
-          if source =~ /module\s+(\w+).*?extend\s+ActiveSupport::Concern/m
-            mixins << $1
-          end
+          mixins << ::Regexp.last_match(1) if source =~ /module\s+(\w+).*?extend\s+ActiveSupport::Concern/m
         end
 
         mixins.uniq

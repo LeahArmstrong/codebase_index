@@ -1,6 +1,6 @@
 # frozen_string_literal: true
 
-require "digest"
+require 'digest'
 
 module CodebaseIndex
   # ExtractedUnit represents a single meaningful unit of code from the codebase.
@@ -55,7 +55,7 @@ module CodebaseIndex
         dependents: dependents,
         chunks: chunks,
         extracted_at: Time.now.iso8601,
-        source_hash: Digest::SHA256.hexdigest(source_code || "")
+        source_hash: Digest::SHA256.hexdigest(source_code || '')
       }
     end
 
@@ -65,6 +65,7 @@ module CodebaseIndex
     # @return [Integer] Estimated token count
     def estimated_tokens
       return 0 unless source_code
+
       @estimated_tokens ||= (source_code.length / 4.0).ceil
     end
 
@@ -133,7 +134,7 @@ module CodebaseIndex
       <<~HEADER
         # Unit: #{identifier} (#{type})
         # File: #{file_path}
-        # Namespace: #{namespace || "(root)"}
+        # Namespace: #{namespace || '(root)'}
         # ---
       HEADER
     end

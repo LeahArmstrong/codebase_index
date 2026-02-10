@@ -132,8 +132,8 @@ Chunk size must stay within the embedding model's context window:
 |----------|-----------|------------------------|
 | OpenAI text-embedding-3-small | 8,191 | ~7,000 (leave room for prefix) |
 | OpenAI text-embedding-3-large | 8,191 | ~7,000 |
-| Voyage Code 2 | 16,000 | ~14,000 |
 | Voyage Code 3 | 32,000 | ~30,000 |
+| Voyage Code 2 (legacy) | 16,000 | ~14,000 |
 | Ollama nomic-embed-text | 8,192 | ~7,000 |
 
 Most extracted chunks will be well under these limits. The exception is large models with many inlined concerns, or framework source files. These should be split at natural boundaries (method definitions, section comments) rather than truncated.
@@ -485,7 +485,7 @@ When CodebaseIndex serves as an MCP tool, the formatted context is returned as a
 }
 ```
 
-The MCP server should detect the connected agent's model and select the appropriate formatter. If unknown, use the generic adapter.
+The MCP server should select the appropriate formatter based on configuration. Note: the MCP protocol does not expose the client model to the server, so model-specific formatting cannot be auto-detected. The format must be set via configuration (e.g., `config.context_format = :claude`) or defaulted to the generic adapter.
 
 ### Formatting for CLI / Human Consumption
 

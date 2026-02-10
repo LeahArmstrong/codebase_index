@@ -176,7 +176,7 @@ Queries are classified along four dimensions:
 - `comprehensive` — Full feature/flow
 
 **Target Type** — What kind of unit?
-- `model`, `controller`, `service`, `job`, `mailer`, `component`, `concern`, `graphql_type`, `graphql_mutation`, `graphql_resolver`, `graphql_query`, `framework`, `schema`, `route`, `unknown`
+- `model`, `controller`, `service`, `job`, `mailer`, `component`, `graphql_type`, `graphql_mutation`, `graphql_resolver`, `graphql_query`, `framework`, `schema`, `route`, `unknown`
 
 **Framework Context** — Does this need Rails/gem source?
 - Triggered by patterns like "what options does X support", "how does Rails implement Y", "is Z deprecated"
@@ -268,14 +268,16 @@ The system is designed for AI agents as primary consumers. See `AGENTIC_STRATEGY
 An agent interacting with CodebaseIndex has access to these tools:
 
 ```
-codebase.retrieve(query)           — Semantic retrieval with auto-classification
-codebase.lookup(identifier)        — Direct unit fetch by name
-codebase.dependencies(identifier)  — Forward dependency graph
-codebase.dependents(identifier)    — Reverse dependency graph ("who uses this?")
-codebase.search(keyword)           — Exact match search
-codebase.framework(concept)        — Rails/gem source for a concept
-codebase.structure()               — High-level codebase overview
-codebase.recent_changes(n)         — Recently modified units
+codebase_retrieve(query)              — Semantic retrieval with auto-classification
+codebase_lookup(identifier)           — Direct unit fetch by name
+codebase_dependencies(identifier)     — Forward dependency graph
+codebase_dependents(identifier)       — Reverse dependency graph ("who uses this?")
+codebase_search(keyword)              — Exact match search
+codebase_framework(concept)           — Rails/gem source for a concept
+codebase_structure()                  — High-level codebase overview
+codebase_recent_changes(n)            — Recently modified units
+codebase_graph_analysis(analysis)     — Structural analysis (orphans, dead ends, hubs, cycles, bridges)
+codebase_pagerank(limit)              — PageRank scores for dependency graph nodes
 ```
 
 ### Multi-Turn Retrieval
