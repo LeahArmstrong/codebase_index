@@ -1,0 +1,22 @@
+# Gem build artifacts
+*.gem
+pkg/
+
+# Bundler (gem convention: don't commit lock file)
+Gemfile.lock
+.bundle/
+
+# Test & coverage
+coverage/
+tmp/
+
+# Environment
+.env
+.byebug_history
+
+# OS
+.DS_Store
+
+# IDE
+.idea/
+.vscode/

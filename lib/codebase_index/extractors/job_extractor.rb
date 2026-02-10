@@ -1,0 +1,380 @@
+# frozen_string_literal: true
+
+module CodebaseIndex
+  module Extractors
+    # JobExtractor handles ActiveJob and Sidekiq job extraction.
+    #
+    # Background jobs are critical for understanding async behavior.
+    # They often perform important business logic that would otherwise
+    # be unclear from just looking at models and controllers.
+    #
+    # We extract:
+    # - Queue configuration
+    # - Retry/error handling configuration
+    # - Arguments (the job's interface)
+    # - What the job calls (dependencies)
+    # - What triggers this job (reverse lookup via dependencies)
+    #
+    # @example
+    #   extractor = JobExtractor.new
+    #   units = extractor.extract_all
+    #   order_job = units.find { |u| u.identifier == "ProcessOrderJob" }
+    #
+    class JobExtractor
+      # Directories to scan for jobs
+      JOB_DIRECTORIES = %w[
+        app/jobs
+        app/workers
+        app/sidekiq
+      ].freeze
+
+      def initialize
+        @directories = JOB_DIRECTORIES.map { |d| Rails.root.join(d) }
+                                      .select(&:directory?)
+      end
+
+      # Extract all jobs in the application
+      #
+      # @return [Array<ExtractedUnit>] List of job units
+      def extract_all
+        units = []
+
+        # File-based discovery (catches everything)
+        @directories.each do |dir|
+          Dir[dir.join("**/*.rb")].each do |file|
+            unit = extract_job_file(file)
+            units << unit if unit
+          end
+        end
+
+        # Also try class-based discovery for ActiveJob
+        if defined?(ApplicationJob)
+          Rails.application.eager_load!
+          ApplicationJob.descendants.each do |job_class|
+            # Skip if already extracted via file
+            next if units.any? { |u| u.identifier == job_class.name }
+            unit = extract_job_class(job_class)
+            units << unit if unit
+          end
+        end
+
+        units.compact
+      end
+
+      # Extract a job from its file
+      #
+      # @param file_path [String] Path to the job file
+      # @return [ExtractedUnit, nil] The extracted unit
+      def extract_job_file(file_path)
+        source = File.read(file_path)
+        class_name = extract_class_name(file_path, source)
+
+        return nil unless class_name
+        return nil unless job_file?(source)
+
+        unit = ExtractedUnit.new(
+          type: :job,
+          identifier: class_name,
+          file_path: file_path
+        )
+
+        unit.namespace = extract_namespace(class_name)
+        unit.source_code = annotate_source(source, class_name)
+        unit.metadata = extract_metadata_from_source(source, class_name)
+        unit.dependencies = extract_dependencies(source)
+
+        unit
+      rescue => e
+        Rails.logger.error("Failed to extract job #{file_path}: #{e.message}")
+        nil
+      end
+
+      # Extract a job from its class (runtime introspection)
+      #
+      # @param job_class [Class] The job class
+      # @return [ExtractedUnit, nil] The extracted unit
+      def extract_job_class(job_class)
+        return nil if job_class.name.nil?
+
+        file_path = source_file_for(job_class)
+        source = file_path && File.exist?(file_path) ? File.read(file_path) : ""
+
+        unit = ExtractedUnit.new(
+          type: :job,
+          identifier: job_class.name,
+          file_path: file_path
+        )
+
+        unit.namespace = extract_namespace(job_class.name)
+        unit.source_code = annotate_source(source, job_class.name)
+        unit.metadata = extract_metadata_from_class(job_class, source)
+        unit.dependencies = extract_dependencies(source)
+
+        unit
+      rescue => e
+        Rails.logger.error("Failed to extract job #{job_class.name}: #{e.message}")
+        nil
+      end
+
+      private
+
+      # ──────────────────────────────────────────────────────────────────────
+      # Class Discovery
+      # ──────────────────────────────────────────────────────────────────────
+
+      def extract_class_name(file_path, source)
+        # Try to extract from source
+        if source =~ /^\s*class\s+([\w:]+)/
+          return $1
+        end
+
+        # Fall back to convention
+        file_path
+          .sub(Rails.root.to_s + "/", "")
+          .sub(%r{^app/(jobs|workers|sidekiq)/}, "")
+          .sub(".rb", "")
+          .camelize
+      end
+
+      def job_file?(source)
+        # Check if this looks like a job/worker file
+        source.match?(/< ApplicationJob/) ||
+          source.match?(/< ActiveJob::Base/) ||
+          source.match?(/include Sidekiq::Worker/) ||
+          source.match?(/include Sidekiq::Job/) ||
+          source.match?(/def perform/)
+      end
+
+      def source_file_for(job_class)
+        # Try to get from method source location
+        if job_class.instance_methods(false).include?(:perform)
+          job_class.instance_method(:perform).source_location&.first
+        end || Rails.root.join("app/jobs/#{job_class.name.underscore}.rb").to_s
+      rescue
+        nil
+      end
+
+      def extract_namespace(class_name)
+        parts = class_name.split("::")
+        parts.size > 1 ? parts[0..-2].join("::") : nil
+      end
+
+      # ──────────────────────────────────────────────────────────────────────
+      # Source Annotation
+      # ──────────────────────────────────────────────────────────────────────
+
+      def annotate_source(source, class_name)
+        job_type = detect_job_type(source)
+        queue = extract_queue(source)
+
+        <<~ANNOTATION
+        # ╔═══════════════════════════════════════════════════════════════════════╗
+        # ║ Job: #{class_name.ljust(62)}║
+        # ║ Type: #{job_type.to_s.ljust(61)}║
+        # ║ Queue: #{(queue || 'default').ljust(60)}║
+        # ╚═══════════════════════════════════════════════════════════════════════╝
+
+        #{source}
+        ANNOTATION
+      end
+
+      def detect_job_type(source)
+        return :sidekiq if source.match?(/include Sidekiq::(Worker|Job)/)
+        return :active_job if source.match?(/< (ApplicationJob|ActiveJob::Base)/)
+        return :good_job if source.match?(/include GoodJob/)
+        return :delayed_job if source.match?(/delay|handle_asynchronously/)
+        :unknown
+      end
+
+      def extract_queue(source)
+        # ActiveJob style
+        if source =~ /queue_as\s+[:"'](\w+)/
+          return $1
+        end
+
+        # Sidekiq style
+        if source =~ /sidekiq_options.*queue:\s*[:"'](\w+)/
+          return $1
+        end
+
+        nil
+      end
+
+      # ──────────────────────────────────────────────────────────────────────
+      # Metadata Extraction (from source)
+      # ──────────────────────────────────────────────────────────────────────
+
+      def extract_metadata_from_source(source, class_name)
+        {
+          job_type: detect_job_type(source),
+          queue: extract_queue(source),
+
+          # Configuration
+          sidekiq_options: extract_sidekiq_options(source),
+          retry_config: extract_retry_config(source),
+          concurrency_controls: extract_concurrency(source),
+
+          # Interface
+          perform_params: extract_perform_params(source),
+          scheduled: source.match?(/perform_later|perform_in|perform_at/),
+
+          # Error handling
+          discard_on: extract_discard_on(source),
+          retry_on: extract_retry_on(source),
+
+          # Callbacks
+          callbacks: extract_callbacks(source),
+
+          # Metrics
+          loc: source.lines.count { |l| l.strip.present? && !l.strip.start_with?("#") }
+        }
+      end
+
+      def extract_metadata_from_class(job_class, source)
+        base_metadata = extract_metadata_from_source(source, job_class.name)
+
+        # Enhance with runtime introspection if available
+        if job_class.respond_to?(:queue_name)
+          base_metadata[:queue] ||= job_class.queue_name
+        end
+
+        if job_class.respond_to?(:sidekiq_options_hash)
+          base_metadata[:sidekiq_options] = job_class.sidekiq_options_hash
+        end
+
+        base_metadata
+      end
+
+      def extract_sidekiq_options(source)
+        options = {}
+
+        if source =~ /sidekiq_options\s+(.+)/
+          opts_str = $1
+          opts_str.scan(/(\w+):\s*([^,\n]+)/) do |key, value|
+            options[key.to_sym] = value.strip
+          end
+        end
+
+        options
+      end
+
+      def extract_retry_config(source)
+        config = {}
+
+        # ActiveJob retry_on
+        source.scan(/retry_on\s+(\w+)(?:,\s*wait:\s*([^,\n]+))?(?:,\s*attempts:\s*(\d+))?/) do |error, wait, attempts|
+          config[:retry_on] ||= []
+          config[:retry_on] << {
+            error: error,
+            wait: wait,
+            attempts: attempts&.to_i
+          }
+        end
+
+        # Sidekiq retries
+        if source =~ /sidekiq_options.*retry:\s*(\d+|false|true)/
+          config[:sidekiq_retries] = $1
+        end
+
+        config
+      end
+
+      def extract_concurrency(source)
+        controls = {}
+
+        # Sidekiq unique jobs
+        if source =~ /unique_for:\s*(\d+)/
+          controls[:unique_for] = $1.to_i
+        end
+
+        # Sidekiq rate limiting
+        if source =~ /rate_limit:\s*\{([^}]+)\}/
+          controls[:rate_limit] = $1
+        end
+
+        controls
+      end
+
+      def extract_perform_params(source)
+        return [] unless source =~ /def\s+perform\s*\(([^)]*)\)/
+
+        params_str = $1
+        params = []
+
+        params_str.scan(/(\*?\*?\w+)(?:\s*=\s*([^,]+))?/) do |name, default|
+          params << {
+            name: name.gsub(/^\*+/, ""),
+            splat: name.start_with?("**") ? :double : (name.start_with?("*") ? :single : nil),
+            has_default: !default.nil?
+          }
+        end
+
+        params
+      end
+
+      def extract_discard_on(source)
+        source.scan(/discard_on\s+(\w+(?:::\w+)*)/).flatten
+      end
+
+      def extract_retry_on(source)
+        source.scan(/retry_on\s+(\w+(?:::\w+)*)/).flatten
+      end
+
+      def extract_callbacks(source)
+        callbacks = []
+
+        %w[before_enqueue after_enqueue before_perform after_perform around_perform].each do |cb|
+          source.scan(/#{cb}\s+(?::(\w+)|do)/) do |method|
+            callbacks << { type: cb, method: method&.first }
+          end
+        end
+
+        callbacks
+      end
+
+      # ──────────────────────────────────────────────────────────────────────
+      # Dependency Extraction
+      # ──────────────────────────────────────────────────────────────────────
+
+      def extract_dependencies(source)
+        deps = []
+
+        # Model references
+        if defined?(ActiveRecord::Base)
+          ActiveRecord::Base.descendants.each do |model|
+            next unless model.name
+            if source.match?(/\b#{model.name}\b/)
+              deps << { type: :model, target: model.name }
+            end
+          end
+        end
+
+        # Service references
+        source.scan(/(\w+Service)(?:\.|::new|\.call)/).flatten.uniq.each do |service|
+          deps << { type: :service, target: service }
+        end
+
+        # Other jobs
+        source.scan(/(\w+Job)\.perform/).flatten.uniq.each do |job|
+          deps << { type: :job, target: job }
+        end
+
+        # Mailers
+        source.scan(/(\w+Mailer)\./).flatten.uniq.each do |mailer|
+          deps << { type: :mailer, target: mailer }
+        end
+
+        # External services
+        if source.match?(/HTTParty|Faraday|RestClient|Net::HTTP/)
+          deps << { type: :external, target: :http_api }
+        end
+
+        if source.match?(/Redis\.current|REDIS/)
+          deps << { type: :infrastructure, target: :redis }
+        end
+
+        deps.uniq { |d| [d[:type], d[:target]] }
+      end
+    end
+  end
+end
