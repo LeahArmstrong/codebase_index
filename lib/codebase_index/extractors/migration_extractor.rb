@@ -88,7 +88,7 @@ module CodebaseIndex
       def extract_all
         return [] unless @has_directory
 
-        files = Dir[@migrate_dir.join('*.rb')]
+        files = Dir[@migrate_dir.join('*.rb')].sort
         files.filter_map { |file| extract_migration_file(file) }
       end
 
