@@ -62,7 +62,7 @@ module CodebaseIndex
         view_template: /\b(view|template|partial|render|erb|layout|html)\b/i,
         # rubocop:disable Layout/LineLength
         migration: /\b(migration|migrate|schema.?change|add.?column|remove.?column|create.?table|drop.?table|db.?migrate)\b/i,
-        action_cable_channel: /\b(channel|action.?cable|websocket|stream|broadcast|subscription|cable|realtime|real.?time)\b/i,
+        action_cable_channel: /\b(action.?cable|websocket|broadcast|cable.?channel|subscription.?channel|realtime|real.?time)\b/i,
         scheduled_job: /\b(schedule[dr]?|recurring|cron|periodic|every\s+\d|daily|hourly|weekly|solid.?queue.*recur|sidekiq.?cron|whenever)\b/i
         # rubocop:enable Layout/LineLength
       }.freeze

@@ -362,6 +362,13 @@ RSpec.describe CodebaseIndex::Extractors::ActionCableExtractor do
         mailer_deps = units.first.dependencies.select { |d| d[:type] == :mailer }
         expect(mailer_deps.map { |d| d[:target] }).to include('OrderMailer')
       end
+
+      it 'includes :via key on all dependencies' do
+        units = extractor.extract_all
+        units.first.dependencies.each do |dep|
+          expect(dep).to have_key(:via), "Dependency #{dep.inspect} missing :via key"
+        end
+      end
     end
 
     context 'ApplicationCable::Channel filtering' do

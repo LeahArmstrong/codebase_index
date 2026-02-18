@@ -472,7 +472,7 @@ RSpec.describe CodebaseIndex::Extractors::MigrationExtractor do
       unit = described_class.new.extract_migration_file(path)
       expect(unit.metadata[:indexes_added]).to include(
         { table: 'users', column: 'email' },
-        { table: 'orders', column: '[user_id, created_at]' }
+        { table: 'orders', column: 'user_id,created_at' }
       )
     end
 

@@ -160,3 +160,4 @@ At the start of a session, read `.claude/context/session-state.md` for context f
 - `CallbackAnalyzer` parses source via regex, not AST — it scans for patterns like `self.col =`, `perform_later`, etc. Proc/lambda callbacks are skipped gracefully.
 - `BehavioralProfile` guards every config introspection with `respond_to?`/`defined?` — a missing config section produces `nil`, not an error.
 - `FlowPrecomputer` is gated by `precompute_flows` config (default: false). Per-action errors are rescued so one failing action doesn't block others.
+- Incremental re-extraction skips unit types that don't map to individual files: `route`, `middleware`, `engine`, `scheduled_job`. These types require full extraction to update. This is acceptable — their source files rarely change independently.

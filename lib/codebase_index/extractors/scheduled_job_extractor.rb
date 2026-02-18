@@ -140,6 +140,7 @@ module CodebaseIndex
           file_path: file_path
         )
 
+        unit.namespace = job_class.include?('::') ? job_class.split('::')[0..-2].join('::') : nil if job_class
         unit.source_code = source
         unit.metadata = {
           schedule_format: format,
@@ -261,6 +262,7 @@ module CodebaseIndex
           file_path: file_path
         )
 
+        unit.namespace = block[:job_class].split('::')[0..-2].join('::') if block[:job_class]&.include?('::')
         unit.source_code = source
         unit.metadata = {
           schedule_format: :whenever,

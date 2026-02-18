@@ -88,7 +88,7 @@ module CodebaseIndex
       def extract_all
         return [] unless @has_directory
 
-        files = Dir[@migrate_dir.join('*.rb')].sort
+        files = Dir[@migrate_dir.join('*.rb')]
         files.filter_map { |file| extract_migration_file(file) }
       end
 
@@ -286,7 +286,13 @@ module CodebaseIndex
       def extract_indexes_added(source)
         source.scan(/add_index\s+:(\w+)\s*,\s*(.+?)(?:\s*,\s*\w+:|$)/m).map do |table, column_expr|
           column = column_expr.strip.sub(/\s*,\s*\w+:.*\z/m, '').strip
-          { table: table, column: column.delete(':').strip }
+          # Handle array syntax for composite indexes: [:user_id, :created_at]
+          column = if column.start_with?('[')
+                     column.gsub(/[\[\]:"\s]/, '')
+                   else
+                     column.delete(':').strip
+                   end
+          { table: table, column: column }
         end
       end
 

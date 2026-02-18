@@ -168,11 +168,8 @@ module CodebaseIndex
       def detect_stream_names(source)
         streams = []
 
-        # stream_from "string" or stream_from 'string'
+        # stream_from "string" or stream_from 'string' (also catches interpolated strings)
         streams.concat(source.scan(/stream_from\s+["']([^"']+)["']/).flatten)
-
-        # stream_from "string_#{interpolation}" — capture full interpolated string
-        streams.concat(source.scan(/stream_from\s+"([^"]*\#\{[^}]+\}[^"]*)"/).flatten)
 
         # stream_for model
         streams.concat(source.scan(/stream_for\s+(\w+)/).map { |m| "stream_for:#{m[0]}" })
