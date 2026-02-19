@@ -1,5 +1,7 @@
 # Design & Documentation Review
 
+> **Status as of Feb 2026:** All critical and high bugs resolved. B-007 (token estimation) partially addressed (4.0 divisor). B-011 (cross-encoder) design-only, intentionally deferred. B-012 and B-013 resolved (scope chunking + embedding resumability implemented).
+
 ## Review Context
 
 Three specialist reviews were conducted:
@@ -23,17 +25,19 @@ Date: 2026-02-09
 
 ## Critical Code Bugs
 
-### B-001: EXTRACTORS key mismatch breaks incremental extraction
-**File:** `lib/codebase_index/extractor.rb:452`
+### B-001: ✅ EXTRACTORS key mismatch breaks incremental extraction — RESOLVED
+**File:** `lib/codebase_index/extractor.rb`
 **Severity:** Critical
+**Resolution:** `TYPE_TO_EXTRACTOR_KEY` mapping handles all types. Incremental extraction path is fully functional.
 
-The `EXTRACTORS` constant uses plural type keys (`:models`, `:controllers`) but `re_extract_unit` looks up by singular type (`:model`, `:controller`). This means incremental extraction via `extract_changed` silently fails to find the correct extractor for any unit, making the incremental path non-functional.
+~~The `EXTRACTORS` constant uses plural type keys but `re_extract_unit` looks up by singular type.~~
 
-### B-002: Missing types in `re_extract_unit`
-**File:** `lib/codebase_index/extractor.rb:455-479`
+### B-002: ✅ Missing types in `re_extract_unit` — RESOLVED
+**File:** `lib/codebase_index/extractor.rb`
 **Severity:** Critical
+**Resolution:** `re_extract_unit` uses `TYPE_TO_EXTRACTOR_KEY` mapping covering all 24 extractor types including jobs, mailers, GraphQL types, and rails_source.
 
-The `case` statement in `re_extract_unit` only handles `:model`, `:controller`, `:service`, `:component`. Missing: `:job`, `:mailer`, `:graphql_type`, `:graphql_mutation`, `:graphql_resolver`, `:graphql_query`, `:rails_source`. Any incremental re-extraction of these types is silently skipped.
+~~The `case` statement only handles `:model`, `:controller`, `:service`, `:component`.~~
 
 ---
 
@@ -107,15 +111,17 @@ The `(length / 4.0).ceil` heuristic underestimates token counts for Ruby code by
 
 ~~The retrieval pipeline goes directly from initial ranking to context assembly with no reranking.~~
 
-### B-012: Missing chunking for scopes
+### B-012: ✅ Missing chunking for scopes — RESOLVED
 **Severity:** Low
+**Resolution:** `SemanticChunker` implements scope-level chunking. Model source is split into semantic chunks (associations, validations, scopes, callbacks, methods) for fine-grained embedding and retrieval.
 
-Scopes are listed in the semantic chunking strategy (CONTEXT_AND_CHUNKING.md) but not yet implemented as separate chunks in the extraction layer. Currently, scopes are part of the model's monolithic source.
+~~Scopes are part of the model's monolithic source.~~
 
-### B-013: Embedding pipeline has no resumability
+### B-013: ✅ Embedding pipeline has no resumability — RESOLVED
 **Severity:** Low
+**Resolution:** `Embedding::Indexer` tracks processed unit identifiers and supports `index_incremental` for resumable embedding. Combined with `CircuitBreaker` and `RetryableProvider` for fault tolerance.
 
-If the embedding pipeline fails mid-batch (API timeout, rate limit exhaustion), there's no checkpoint mechanism to resume from where it left off. The retry mechanism in OPERATIONS.md handles individual batch retries but not pipeline-level resumability.
+~~No checkpoint mechanism to resume from where it left off.~~
 
 ---
 

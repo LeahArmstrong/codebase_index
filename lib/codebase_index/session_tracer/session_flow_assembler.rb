@@ -241,12 +241,13 @@ module CodebaseIndex
       end
 
       # Estimate token count for a string.
-      # Uses project convention: (string.length / 3.5).ceil
+      # Uses project convention: (string.length / 4.0).ceil
+      # See docs/TOKEN_BENCHMARK.md — conservative floor (~10.6% overestimate).
       #
       # @param text [String] Text to estimate
       # @return [Integer] Estimated token count
       def estimate_token_count(text)
-        (text.length / 3.5).ceil
+        (text.length / 4.0).ceil
       end
 
       # Build an empty document for sessions with no requests.
