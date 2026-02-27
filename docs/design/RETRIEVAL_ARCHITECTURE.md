@@ -2452,7 +2452,7 @@ end
 
 ### Target Environment: Large Rails Monolith
 
-Based on the Big Cartel admin application analysis:
+Based on a production Rails monolith analysis:
 
 **Scale:**
 - 993 models
