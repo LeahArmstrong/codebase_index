@@ -30,15 +30,26 @@ Then:
 
 ```bash
 bundle install
+rails generate codebase_index:install
+rails db:migrate
 ```
 
-Or install directly:
+Create a minimal configuration:
+
+```ruby
+# config/initializers/codebase_index.rb
+CodebaseIndex.configure do |config|
+  config.output_dir = Rails.root.join('tmp/codebase_index')
+end
+```
+
+Or install the gem directly:
 
 ```bash
 gem install codebase_index
 ```
 
-> **Requires Rails.** Extraction runs inside a booted Rails application using runtime introspection (`ActiveRecord::Base.descendants`, `Rails.application.routes`, etc.). The gem cannot extract from source files alone. See [Getting Started](docs/GETTING_STARTED.md) for setup.
+> **Requires Rails.** Extraction runs inside a booted Rails application using runtime introspection (`ActiveRecord::Base.descendants`, `Rails.application.routes`, etc.). The gem cannot extract from source files alone. See [Getting Started](docs/GETTING_STARTED.md) for full setup details.
 
 ## Target Environment
 
@@ -177,7 +188,7 @@ Extraction runs inside the Rails application (via rake task) to access runtime i
 
 CodebaseIndex ships two [MCP](https://modelcontextprotocol.io/) servers for integrating with AI development tools (Claude Code, Cursor, Windsurf, etc.).
 
-**Index Server** (26 tools) — Reads pre-extracted data from disk. No Rails boot required. Provides code lookup, dependency traversal, graph analysis, semantic search, pipeline management, feedback collection, and temporal snapshots.
+**Index Server** (27 tools) — Reads pre-extracted data from disk. No Rails boot required. Provides code lookup, dependency traversal, graph analysis, semantic search, pipeline management, feedback collection, and temporal snapshots.
 
 ```bash
 codebase-index-mcp /path/to/rails-app/tmp/codebase_index
@@ -199,7 +210,7 @@ Add the servers to your project's `.mcp.json`:
 {
   "mcpServers": {
     "codebase-index": {
-      "command": "codebase-index-mcp",
+      "command": "codebase-index-mcp-start",
       "args": ["/path/to/rails-app/tmp/codebase_index"]
     },
     "codebase-console": {
@@ -210,6 +221,8 @@ Add the servers to your project's `.mcp.json`:
   }
 }
 ```
+
+> **Recommended**: Use `codebase-index-mcp-start` instead of `codebase-index-mcp` for Claude Code. It validates the index directory exists, checks for a manifest, ensures dependencies are installed, and restarts automatically on failure.
 
 The **index server** reads from a pre-extracted directory — run `bundle exec rake codebase_index:extract` in your Rails app first.
 
@@ -255,6 +268,8 @@ lib/
 │   ├── builder.rb                              # DSL builder for configuration
 │   ├── version.rb                              # Gem version
 │   ├── railtie.rb                              # Rails integration
+│   ├── flow_precomputer.rb                     # Pre-computed per-action request flow maps
+│   ├── filename_utils.rb                       # Safe filename generation
 │   │
 │   ├── extractors/                             # 34 extractors (one per Rails concept)
 │   │   ├── model_extractor.rb                  # ActiveRecord models
@@ -324,9 +339,14 @@ lib/
 │   │   ├── generic_adapter.rb                  # Generic LLM output
 │   │   └── human_adapter.rb                    # Human-readable output
 │   │
-│   ├── mcp/                                    # MCP Index Server (26 tools)
+│   ├── mcp/                                    # MCP Index Server (27 tools)
 │   │   ├── server.rb                           # Tool definitions + dispatch
-│   │   └── index_reader.rb                     # JSON index reader
+│   │   ├── index_reader.rb                     # JSON index reader
+│   │   └── renderers/
+│   │       ├── claude_renderer.rb              # Claude-optimized responses
+│   │       ├── json_renderer.rb                # JSON responses
+│   │       ├── markdown_renderer.rb            # Markdown responses
+│   │       └── plain_renderer.rb               # Plain text responses
 │   │
 │   ├── console/                                # Console MCP Server (31 tools)
 │   │   ├── server.rb                           # Console server + tool registration
@@ -338,7 +358,7 @@ lib/
 │   │   ├── audit_logger.rb                     # JSONL audit logging
 │   │   ├── confirmation.rb                     # Human-in-the-loop confirmation
 │   │   ├── tools/
-│   │   │   ├── tier1.rb                        # 9 safe read-only tools
+│   │   │   ├── tier1.rb                        # 9 read-only tools
 │   │   │   ├── tier2.rb                        # 9 domain-aware tools
 │   │   │   ├── tier3.rb                        # 10 analytics tools
 │   │   │   └── tier4.rb                        # 3 guarded tools
@@ -370,13 +390,38 @@ lib/
 │   │   ├── retryable_provider.rb               # Retry with backoff
 │   │   └── index_validator.rb                  # Index integrity validation
 │   │
+│   ├── cache/                                   # Response caching
+│   │   ├── cache_middleware.rb                  # Rack middleware for caching
+│   │   ├── cache_store.rb                       # Base cache store
+│   │   ├── redis_cache_store.rb                 # Redis cache adapter
+│   │   └── solid_cache_store.rb                 # SolidCache adapter
+│   │
+│   ├── cost_model/                              # Extraction + embedding cost estimation
+│   │   ├── embedding_cost.rb                    # Per-provider embedding costs
+│   │   ├── estimator.rb                         # Cost estimation orchestrator
+│   │   ├── provider_pricing.rb                  # Provider pricing data
+│   │   └── storage_cost.rb                      # Storage cost estimation
+│   │
+│   ├── notion/                                  # Notion export
+│   │   ├── client.rb                            # Notion API client
+│   │   ├── exporter.rb                          # Export orchestrator
+│   │   ├── mapper.rb                            # Base mapper
+│   │   ├── rate_limiter.rb                      # API rate limiting
+│   │   └── mappers/
+│   │       ├── model_mapper.rb                  # Model → Notion mapper
+│   │       ├── column_mapper.rb                 # Column → Notion mapper
+│   │       ├── migration_mapper.rb              # Migration → Notion mapper
+│   │       └── shared.rb                        # Shared mapping utilities
+│   │
 │   ├── db/                                     # Schema management
 │   │   ├── schema_version.rb                   # Version tracking
 │   │   ├── migrator.rb                         # Standalone migration runner
 │   │   └── migrations/
 │   │       ├── 001_create_units.rb
 │   │       ├── 002_create_edges.rb
-│   │       └── 003_create_embeddings.rb
+│   │       ├── 003_create_embeddings.rb
+│   │       ├── 004_create_snapshots.rb
+│   │       └── 005_create_snapshot_units.rb
 │   │
 │   ├── session_tracer/                          # Session tracing middleware + stores
 │   │   ├── middleware.rb                        # Rack middleware
@@ -385,8 +430,7 @@ lib/
 │   │   └── solid_cache_store.rb                 # SolidCache trace storage
 │   │
 │   ├── temporal/                                # Temporal snapshot system
-│   │   ├── snapshot_store.rb                    # Snapshot persistence + diff
-│   │   └── snapshot_metadata.rb                 # Snapshot metadata
+│   │   └── snapshot_store.rb                    # Snapshot persistence + diff
 │   │
 │   └── evaluation/                             # Retrieval evaluation
 │       ├── query_set.rb                        # Evaluation query loading
@@ -447,6 +491,11 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 2
+      - uses: actions/cache@v4
+        with:
+          path: tmp/codebase_index
+          key: codebase-index-${{ runner.os }}-${{ hashFiles('Gemfile.lock') }}
+          restore-keys: codebase-index-${{ runner.os }}-
       - name: Update index
         run: bundle exec rake codebase_index:incremental
         env:
@@ -459,18 +508,61 @@ jobs:
 bundle exec rake codebase_index:extract_framework
 ```
 
+### Docker
+
+When using Docker, extraction runs inside the container but the Index Server runs on the host (it reads static JSON, no Rails needed). The Console Server connects to the container for live queries.
+
+```bash
+# Extraction (inside container)
+docker compose exec app bundle exec rake codebase_index:extract
+docker compose exec app bundle exec rake codebase_index:incremental
+```
+
+Docker `.mcp.json` — both servers configured:
+
+```json
+{
+  "mcpServers": {
+    "codebase-index": {
+      "command": "codebase-index-mcp-start",
+      "args": ["./tmp/codebase_index"]
+    },
+    "codebase-console": {
+      "command": "docker",
+      "args": [
+        "compose", "exec", "-i", "app",
+        "bundle", "exec", "rake", "codebase_index:console"
+      ]
+    }
+  }
+}
+```
+
+> **Note:** The Index Server `args` path must be the **host path** to the volume-mounted extraction output, not the container path. The Console Server uses `docker compose exec -i` to pipe MCP protocol into the container.
+
+See [docs/DOCKER_SETUP.md](docs/DOCKER_SETUP.md) for the full Docker guide — architecture overview, bridge mode for all 31 console tools, path translation, and troubleshooting.
+
 ### Other Tasks
 
 ```bash
-rake codebase_index:validate  # Check index integrity
-rake codebase_index:stats     # Show unit counts, sizes, graph stats
-rake codebase_index:clean     # Remove index
+rake codebase_index:validate          # Check index integrity
+rake codebase_index:stats             # Show unit counts, sizes, graph stats
+rake codebase_index:clean             # Remove index
+rake codebase_index:embed             # Embed all extracted units
+rake codebase_index:embed_incremental # Embed changed units only
+rake codebase_index:flow[EntryPoint]  # Generate execution flow for an entry point
+rake codebase_index:console           # Start console MCP server
+rake codebase_index:notion_sync       # Sync models/columns to Notion databases
 ```
+
+See [docs/NOTION_INTEGRATION.md](docs/NOTION_INTEGRATION.md) for Notion export configuration.
 
 ### Ruby API
 
+> **Requires a booted Rails environment.** These methods use runtime introspection and must be called from within a Rails process (console, rake task, initializer).
+
 ```ruby
-# Full extraction
+# Full extraction (output_dir from configuration)
 CodebaseIndex.extract!
 
 # Incremental

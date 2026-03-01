@@ -8,7 +8,7 @@ CodebaseIndex ships two MCP (Model Context Protocol) servers that integrate with
 |---|---|---|
 | **Purpose** | Query pre-extracted codebase data | Run live queries against a Rails app |
 | **Requires Rails?** | No — reads JSON from disk | Yes — bridges to a Rails process |
-| **Tools** | 26 | 31 |
+| **Tools** | 27 | 31 |
 | **Transport** | Stdio (default), HTTP | Stdio |
 | **Data source** | `tmp/codebase_index/` output | Live database + application state |
 | **Safety** | Read-only (extraction output) | Rolled-back transactions, SQL validation |
@@ -56,7 +56,26 @@ codebase-index-mcp-http /path/to/rails-app/tmp/codebase_index
 }
 ```
 
-### Tools (26)
+### Docker Note
+
+The Index Server runs on the **host**, not inside Docker. It reads static JSON files and does not need Rails. Point it at the volume-mounted extraction output using the host-side path:
+
+```json
+{
+  "mcpServers": {
+    "codebase": {
+      "command": "codebase-index-mcp-start",
+      "args": ["./tmp/codebase_index"]
+    }
+  }
+}
+```
+
+Do **not** use the container path (e.g., `/app/tmp/codebase_index`) — the server cannot access it. The `codebase-index-mcp-start` wrapper validates the directory and `manifest.json` before starting.
+
+See [DOCKER_SETUP.md](DOCKER_SETUP.md) for the full Docker guide including Console Server configuration.
+
+### Tools (27)
 
 #### Core Query (6)
 
@@ -117,6 +136,12 @@ codebase-index-mcp-http /path/to/rails-app/tmp/codebase_index
 | `snapshot_diff` | Compare two snapshots — added, modified, deleted units. |
 | `unit_history` | Track how a single unit changed across snapshots. |
 | `snapshot_detail` | Full metadata for a specific snapshot by git SHA. |
+
+#### Notion (1)
+
+| Tool | Description |
+|------|-------------|
+| `notion_sync` | Sync models and columns to a Notion database. Requires `notion_api_token` and `notion_database_ids` configuration. |
 
 #### Utility (1)
 
