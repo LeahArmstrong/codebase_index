@@ -558,6 +558,23 @@ Every extractor returns `Array<ExtractedUnit>`. An `ExtractedUnit` is a self-con
 - Additional gems can be indexed via `config.add_gem "devise", paths: [...]`
 - This is what makes framework-specific queries accurate: "what options does `has_many` support?" returns the actual source for the installed Rails version
 
+**Example output (abbreviated):**
+
+```json
+{
+  "type": "rails_source",
+  "identifier": "ActiveRecord::Associations::ClassMethods",
+  "file_path": "/path/to/gems/activerecord-7.2.0/lib/active_record/associations.rb",
+  "source_code": "module ActiveRecord\n  module Associations\n    module ClassMethods\n      def has_many(name, scope = nil, **options, &extension)\n        ...\n      end\n      ...\n    end\n  end\nend",
+  "metadata": {
+    "gem": "activerecord",
+    "version": "7.2.0",
+    "priority": "high"
+  },
+  "dependencies": []
+}
+```
+
 ---
 
 ## How Do I Enable or Disable Extractors?
@@ -633,6 +650,31 @@ If the host app is a git repo, the following are added to `metadata[:git]` after
 | `contributors` | Top 5 contributors by commit count: `[{ name:, commits: }]` |
 | `recent_commits` | Last 5 commits: `[{ sha:, message:, date:, author: }]` |
 | `change_frequency` | `:new`, `:hot`, `:active`, `:stable`, or `:dormant` |
+
+**Full git enrichment JSON example:**
+
+```json
+{
+  "git": {
+    "last_modified": "2025-02-15T10:22:00Z",
+    "last_author": "Alice",
+    "commit_count": 47,
+    "change_frequency": "hot",
+    "contributors": [
+      { "name": "Alice", "commits": 22 },
+      { "name": "Bob", "commits": 15 },
+      { "name": "Carol", "commits": 10 }
+    ],
+    "recent_commits": [
+      { "sha": "abc1234", "message": "Add status validation to Order", "date": "2025-02-15", "author": "Alice" },
+      { "sha": "def5678", "message": "Fix total calculation edge case", "date": "2025-02-10", "author": "Bob" },
+      { "sha": "ghi9012", "message": "Refactor callbacks for clarity", "date": "2025-02-05", "author": "Alice" },
+      { "sha": "jkl3456", "message": "Add line item discount support", "date": "2025-01-28", "author": "Carol" },
+      { "sha": "mno7890", "message": "Initial order model setup", "date": "2025-01-15", "author": "Alice" }
+    ]
+  }
+}
+```
 
 ### Full Example JSON
 

@@ -16,9 +16,30 @@ Scenario-based examples showing which tool to use, what parameters to pass, and 
 }
 ```
 
-Returns the manifest (unit counts by type, git SHA, extraction timestamp) plus the full `SUMMARY.md` overview. Use `detail: "summary"` for just the counts.
+**Example response:**
 
-**What you'll get:** Total units broken down by type (models, controllers, services, jobs, etc.), the git commit the extraction reflects, and when it ran.
+```json
+{
+  "manifest": {
+    "extracted_at": "2025-03-01T14:30:00Z",
+    "git_sha": "abc1234",
+    "unit_counts": {
+      "model": 42,
+      "controller": 18,
+      "service": 25,
+      "job": 12,
+      "mailer": 5,
+      "route": 87,
+      "concern": 15,
+      "view_template": 60
+    },
+    "total_units": 310
+  },
+  "summary": "# Codebase Summary\n\n42 models, 18 controllers, 25 services, 12 jobs..."
+}
+```
+
+Use `detail: "summary"` for just the counts without the full summary text.
 
 ---
 
@@ -33,7 +54,42 @@ Returns the manifest (unit counts by type, git SHA, extraction timestamp) plus t
 }
 ```
 
-**What you'll get:** Full annotated source with inlined concerns, schema comments, associations, callbacks, and validations — everything needed to understand the model without opening the file.
+**Example response:**
+
+```json
+{
+  "identifier": "User",
+  "type": "model",
+  "file_path": "app/models/user.rb",
+  "source_code": "# == Schema Information\n# id :bigint not null, pk\n# email :string not null\n# name :string\n# created_at :datetime\n#\nclass User < ApplicationRecord\n  has_many :orders\n  has_many :comments\n  validates :email, presence: true, uniqueness: true\n  ...\nend\n\n# --- Concern: Searchable ---\nmodule Searchable\n  ...\nend",
+  "metadata": {
+    "associations": [
+      { "type": "has_many", "name": "orders", "model": "Order" },
+      { "type": "has_many", "name": "comments", "model": "Comment" }
+    ],
+    "validations": [
+      { "attribute": "email", "kind": "presence" },
+      { "attribute": "email", "kind": "uniqueness" }
+    ],
+    "callbacks": [],
+    "inlined_concerns": ["Searchable"],
+    "git": {
+      "last_modified": "2025-02-15T10:22:00Z",
+      "last_author": "Alice",
+      "commit_count": 23,
+      "change_frequency": "active"
+    }
+  },
+  "dependencies": [
+    { "type": "model", "target": "Order", "via": "has_many" },
+    { "type": "model", "target": "Comment", "via": "has_many" }
+  ],
+  "dependents": [
+    { "type": "controller", "identifier": "UsersController" },
+    { "type": "service", "identifier": "AuthenticationService" }
+  ]
+}
+```
 
 To focus on just associations and callbacks without the full source:
 
@@ -58,7 +114,22 @@ To focus on just associations and callbacks without the full source:
 }
 ```
 
-**What you'll get:** A BFS tree of everything that references `User` — controllers, services, jobs, mailers — up to 2 hops out. Set `depth: 1` for direct dependents only.
+**Example response:**
+
+```json
+{
+  "root": "User",
+  "found": true,
+  "nodes": {
+    "User": { "type": "model", "depth": 0, "deps": ["UsersController", "AuthenticationService", "OrdersController"] },
+    "UsersController": { "type": "controller", "depth": 1, "deps": ["AdminDashboardController"] },
+    "AuthenticationService": { "type": "service", "depth": 1, "deps": ["SessionsController"] },
+    "OrdersController": { "type": "controller", "depth": 1, "deps": [] }
+  }
+}
+```
+
+Set `depth: 1` for direct dependents only.
 
 To find only which jobs depend on `User`:
 
@@ -301,7 +372,26 @@ Start with performance metrics from the Console Server, then trace the code path
 }
 ```
 
-**What you'll get:** Relevant Rails source units matching the keyword — the actual implementation from the installed gem. Useful for understanding framework behavior without leaving your AI tool.
+**Example response:**
+
+```json
+[
+  {
+    "identifier": "ActiveRecord::Associations::ClassMethods",
+    "type": "rails_source",
+    "file_path": "/path/to/gems/activerecord-7.2.0/lib/active_record/associations.rb",
+    "metadata": { "gem": "activerecord", "version": "7.2.0" }
+  },
+  {
+    "identifier": "ActiveRecord::Associations::Builder::HasMany",
+    "type": "rails_source",
+    "file_path": "/path/to/gems/activerecord-7.2.0/lib/active_record/associations/builder/has_many.rb",
+    "metadata": { "gem": "activerecord", "version": "7.2.0" }
+  }
+]
+```
+
+Useful for understanding framework behavior without leaving your AI tool — returns the actual implementation from the installed gem.
 
 ---
 
