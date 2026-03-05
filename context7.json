@@ -1,6 +1,9 @@
 {
+  "$schema": "https://context7.com/schema/v1.json",
   "url": "https://context7.com/leaharmstrong/codebase_index",
   "public_key": "pk_lHvYkoK2DwC8Cbj0p10kg",
+  "projectTitle": "CodebaseIndex",
+  "description": "Ruby gem that extracts structured data from Rails applications for AI-assisted development. Uses runtime introspection to produce version-accurate representations with inlined concerns, resolved callback chains, schema-aware associations, and dependency graphs.",
   "folders": ["docs"],
   "excludeFolders": [
     "docs/design",
@@ -15,5 +18,11 @@
     "docs/TOKEN_BENCHMARK.md",
     "docs/COVERAGE_GAP_ANALYSIS.md",
     "docs/USE_CASES_AND_FEATURE_GAPS.md"
+  ],
+  "rules": [
+    "CodebaseIndex requires a booted Rails environment for extraction. The MCP Index Server reads pre-extracted JSON and does NOT require Rails.",
+    "Primary interfaces: two MCP servers (Index Server for structural queries, Console Server for live data), rake tasks for extraction, and a Ruby API (IndexReader, DependencyGraph, Retriever) for scripting.",
+    "ExtractedUnit is the universal data structure — type, identifier, file_path, source_code, metadata, dependencies, dependents, chunks.",
+    "The dependency graph is bidirectional with PageRank scoring. GraphAnalyzer detects orphans, hubs, cycles, bridges."
   ]
 }
